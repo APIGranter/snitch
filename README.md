@@ -11,7 +11,6 @@ The name plays on **SNI** (the hostname that travels in the TLS handshake):
 SNItch *snitches* on which servers each app contacts.
 
 Built as part of a network-traffic analysis exercise (Ethical Hacking).
-The script was designed with Claude Code.
 
 > Author: **@APIGranter** · Runs on Windows, Linux (incl. Kali) and macOS.
 
