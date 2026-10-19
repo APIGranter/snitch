@@ -1,0 +1,3 @@
+# Rename this file to  vt_key.txt  and paste your VirusTotal API key here (one line).
+# Get a free key at: https://www.virustotal.com -> your profile -> API Key
+# Lines starting with # are ignored.

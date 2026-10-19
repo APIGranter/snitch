@@ -1,0 +1,18 @@
+# Real API key: never commit
+vt_key.txt
+
+# Per-analysis result folders
+*_2???-??-??_*/
+ip_cache.json
+cache_ips.json
+
+# Network captures
+*.pcap
+*.pcapng
+
+# PyInstaller / Python
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
