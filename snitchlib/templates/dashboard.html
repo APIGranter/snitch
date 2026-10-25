@@ -1355,6 +1355,9 @@ function openDestination(index){
   const ports = (d.ports || []).map(p => `<span class="chip">${esc(p.port)} · ${esc(p.service)} <b>${fmtNum(p.count)}</b></span>`).join("") || '<span class="muted">–</span>';
   const clients = Object.entries(d.clients || {}).map(([ip,n]) => `<span class="chip">${esc(ip)} <b>${fmtNum(n)}</b></span>`).join("") || '<span class="muted">–</span>';
   const ja4 = Object.entries(d.ja4 || {}).map(([fp,n]) => `<div class="mono" style="font-size:11px">${esc(fp)} <span class="muted">×${n}</span></div>`).join("") || '<span class="muted">–</span>';
+  const agents = Object.entries(d.user_agents || {}).map(([ua,n]) =>
+    `<div class="mono" style="font-size:11px;overflow-wrap:anywhere">${esc(ua)} <span class="muted">×${fmtNum(n)}</span></div>`).join("");
+  const methods = Object.entries(d.http_methods || {}).map(([m,n]) => `<span class="chip">${esc(m)} <b>${fmtNum(n)}</b></span>`).join("");
   const body = banner +
     kvRows([
       ["Provider", geo.isp || geo.org || "–"],
@@ -1375,6 +1378,8 @@ function openDestination(index){
     `<div class="section-title">Hostnames (${(d.domains||[]).length})</div><div class="chips">${domains}</div>` +
     `<div class="section-title">Services</div><div class="chips">${ports}</div>` +
     `<div class="section-title">Clients</div><div class="chips">${clients}</div>` +
+    (methods ? `<div class="section-title">HTTP methods</div><div class="chips">${methods}</div>` : "") +
+    (agents ? `<div class="section-title">User agents</div>${agents}` : "") +
     `<div class="section-title">JA4 fingerprints</div><div>${ja4}</div>` +
     actionLinks(d);
   openModal(d.ip, sub, body);

@@ -229,6 +229,20 @@ class ExtractorTests(unittest.TestCase):
         self.assertIn("plain.example.com", analysis.domains)
         self.assertNotIn("h2.example.com", analysis.domains)
 
+    def test_http_user_agent_and_method_are_attached(self):
+        row = tcp_row(
+            frame_protocols="eth:ethertype:ip:tcp:http",
+            tcp_dstport="80",
+            tls_handshake_extensions_server_name="",
+            http_host="plain.example.com",
+            http_user_agent="TestBrowser/1.0 (Linux)",
+            http_request_method="get",
+        )
+        analysis = extract([row], self.options())
+        dest = analysis.destinations[SERVER]
+        self.assertEqual(dest.user_agents["TestBrowser/1.0 (Linux)"], 1)
+        self.assertEqual(dest.http_methods["GET"], 1)
+
     def test_dhcp_hostname_is_attached_to_client(self):
         dhcp = tcp_row(
             frame_number="2",

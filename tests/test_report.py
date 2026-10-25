@@ -99,6 +99,24 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["flows"][0]["service"], "HTTPS")
         self.assertEqual(report["clients"][0]["hostnames"], {"test-laptop": 3})
 
+    def test_http_metadata_is_reported_and_rendered(self):
+        analysis = sample_analysis()
+        dest = analysis.destinations["93.184.216.34"]
+        dest.user_agents["TestBrowser/1.0 (Linux)"] = 3
+        dest.http_methods["GET"] = 2
+        report = build_report(analysis)
+        row = report["destinations"][0]
+        self.assertEqual(row["user_agents"], {"TestBrowser/1.0 (Linux)": 3})
+        self.assertEqual(row["http_methods"], {"GET": 2})
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "dashboard.html")
+            build_dashboard(report, out, QUIET)
+            with open(out, encoding="utf-8") as handle:
+                html = handle.read()
+        self.assertIn("User agents", html)
+        self.assertIn("TestBrowser/1.0 (Linux)", html)
+        self.assertIn("HTTP methods", html)
+
     def test_dashboard_payload_caps_but_keeps_finding_rows(self):
         analysis = sample_analysis()
         popular = Destination(

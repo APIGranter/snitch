@@ -171,6 +171,8 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
             "tls_versions": dict(dest.tls_versions),
             "alpn": dict(dest.alpn),
             "ja4": dict(dest.ja4),
+            "user_agents": dict(dest.user_agents.most_common(10)),
+            "http_methods": dict(dest.http_methods),
         })
 
     domain_rows = []

@@ -30,6 +30,8 @@ class Destination:
     tls_versions: Counter = field(default_factory=Counter)
     alpn: Counter = field(default_factory=Counter)
     ja4: Counter = field(default_factory=Counter)
+    user_agents: Counter = field(default_factory=Counter)
+    http_methods: Counter = field(default_factory=Counter)
     retransmissions: int = 0
     syn_count: int = 0
     geo: Dict[str, Any] = field(default_factory=dict)

@@ -456,6 +456,14 @@ class Extractor:
                or row.get("dtls_handshake_extensions_server_name") or "")
         http_host = (row.get("http_host")
                      or row.get("http2_headers_authority") or "")
+        # Plain HTTP requests expose the client software; keep a bounded copy.
+        if selected and direction == "out":
+            agent = (row.get("http_user_agent") or "").strip()
+            if agent:
+                self._dest(dest_ip).user_agents[agent[:300]] += 1
+            method = (row.get("http_request_method") or "").strip().upper()
+            if method:
+                self._dest(dest_ip).http_methods[method[:20]] += 1
         # SNI and HTTP Host are only trustworthy on client -> server packets.
         domain_client = client_ip if selected and direction == "out" else ""
         if sni and selected and direction == "out":
