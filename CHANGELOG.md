@@ -36,7 +36,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   current tshark does not dissect untagged IMAP greetings).
 - Finding allowlist (`--allowlist PATH`): suppress findings for known-good
   IPs, CIDRs and domain suffixes (boundary-aware), with a suppression warning
-  and a "Suppressed by allowlist" section in the dashboard.
+  and a "Suppressed by allowlist" section in the dashboard. Entries can be
+  scoped with `[only: ...]` or `[except: ...]` to suppress just some finding
+  categories.
 - Automatic client-subnet discovery: when the default Windows-hotspot filter
   matches no clients, SNItch parses `ip addr`/`ifconfig`/`ipconfig` (with a
   socket fallback) and retries with this machine's private IPv4 subnets before
@@ -74,7 +76,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 153 unit/integration tests (no tshark or network required).
+- 159 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

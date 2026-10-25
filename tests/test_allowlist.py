@@ -74,6 +74,34 @@ class ParsingTests(unittest.TestCase):
             with self.assertRaises(AllowlistError):
                 Allowlist.load(os.path.join(folder, "missing.txt"))
 
+    def test_category_modifiers_are_parsed(self):
+        allow = Allowlist.from_lines([
+            "backup.example.com [only: beaconing]",
+            "203.0.113.10 [except: dns_anomaly, port_scan]",
+            "198.51.100.0/24 [not port-scan]  # alias for except",
+        ])
+        self.assertEqual(allow.entries, 3)
+        self.assertEqual(allow.scoped_entries, 3)
+        self.assertEqual(
+            allow.entries_list[0].only, frozenset({"beaconing"}))
+        self.assertEqual(
+            allow.entries_list[1].except_, frozenset({"dns_anomaly", "port_scan"}))
+        self.assertEqual(
+            allow.entries_list[2].except_, frozenset({"port_scan"}))
+        self.assertIn("category-scoped", allow.describe())
+
+    def test_invalid_category_modifiers_raise(self):
+        cases = [
+            ["example.com [always: beaconing]"],
+            ["example.com [only:]"],
+            ["example.com [only: beaconing"],
+            ["example.com [only: beaconin]"],
+            ["[only: beaconing]"],
+        ]
+        for lines in cases:
+            with self.assertRaises(AllowlistError, msg=lines):
+                Allowlist.from_lines(lines)
+
     def test_empty_allowlist_is_a_noop(self):
         allow = Allowlist.empty()
         self.assertEqual(allow.entries, 0)
@@ -99,6 +127,36 @@ class MatchingTests(unittest.TestCase):
         allow = Allowlist.from_lines(["example.com"])
         self.assertFalse(allow.matches(finding()))
         self.assertFalse(allow.matches(finding(domains=[], ips=[])))
+
+    def test_only_scope_limits_suppression(self):
+        allow = Allowlist.from_lines(["backup.example.com [only: beaconing]"])
+        self.assertTrue(allow.matches(finding(id="beaconing", domains=["backup.example.com"])))
+        self.assertFalse(allow.matches(finding(id="outbound_volume", domains=["backup.example.com"])))
+        self.assertFalse(allow.matches(finding(id="cleartext", ips=["203.0.113.9"])))
+
+    def test_except_scope_keeps_important_categories(self):
+        allow = Allowlist.from_lines(["203.0.113.0/24 [except: dns_anomaly, port_scan]"])
+        self.assertTrue(allow.matches(finding(id="beaconing", ips=["203.0.113.5"])))
+        self.assertFalse(allow.matches(finding(id="port_scan", ips=["203.0.113.5"])))
+        self.assertFalse(allow.matches(finding(id="dns_anomaly", ips=["203.0.113.5"])))
+
+    def test_unscoped_entry_overrides_scoped_entry(self):
+        allow = Allowlist.from_lines([
+            "example.com [only: beaconing]",
+            "example.com",
+        ])
+        self.assertTrue(allow.matches(finding(id="outbound_volume", domains=["www.example.com"])))
+
+    def test_scoped_entries_still_require_every_ip(self):
+        allow = Allowlist.from_lines([
+            "198.51.100.0/24 [only: beaconing]",
+            "203.0.113.0/24 [only: beaconing]",
+        ])
+        self.assertFalse(allow.matches(finding(
+            id="beaconing", ips=["198.51.100.1", "192.0.2.9"])))
+        # One IP is only covered by the scoped-out entry below the category.
+        self.assertFalse(allow.matches(finding(
+            id="outbound_volume", ips=["198.51.100.1", "203.0.113.9"])))
 
     def test_filter_counts(self):
         allow = Allowlist.from_lines(["example.com", "203.0.113.10"])

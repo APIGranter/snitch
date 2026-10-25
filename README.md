@@ -150,6 +150,18 @@ excluded from totals but listed in the dashboard's Findings tab, `summary.txt`
 and `data/analysis.json`; raw destinations/domains are still reported
 normally. Invalid entries fail fast with exit code 2.
 
+Add a bracketed modifier to scope an entry to finding categories. `only`
+suppresses just those categories; `except` suppresses everything else:
+
+```
+backup.example.com [only: beaconing]           # quiet periodic backup
+203.0.113.0/24 [except: dns_anomaly, port_scan]  # keep the scary stuff
+```
+
+Valid categories are `beaconing`, `outbound_volume`, `dns_anomaly`,
+`port_scan`, `tor_like`, `tor_exit`, `cleartext`, `retransmissions`,
+`vt_malicious`, `vt_suspicious` and `vt_domain`; a typo is rejected.
+
 ### Tune heuristic thresholds
 
 The detectors use conservative defaults. Pick a preset with
@@ -317,7 +329,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 153 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 159 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
