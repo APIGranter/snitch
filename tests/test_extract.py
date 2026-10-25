@@ -36,6 +36,7 @@ def tcp_row(**overrides):
         "tls_handshake_extensions_alpn_str": "h2",
         "tls_handshake_version": "0x0304",
         "tls_handshake_ja4": "t13d1516h2_8daaf6152771_02713d6af862",
+        "dtls_handshake_extensions_server_name": "",
         "dns_flags_response": "",
         "dns_qry_name": "",
         "dns_qry_type": "",
@@ -45,6 +46,7 @@ def tcp_row(**overrides):
         "http_host": "",
         "http_user_agent": "",
         "http_request_method": "",
+        "http2_headers_authority": "",
         "quic_version": "",
     }
     row.update(overrides)
@@ -173,6 +175,42 @@ class ExtractorTests(unittest.TestCase):
         self.assertIn(key, analysis.flows)
         self.assertEqual(analysis.flows[key].domains["www.example.com"], 1)
         self.assertEqual(analysis.stream_events[0][:4], (1700000000.0, CLIENT, SERVER, "tcp"))
+
+    def test_dtls_sni_is_extracted(self):
+        row = tcp_row(
+            frame_protocols="eth:ethertype:ip:udp:dtls",
+            tcp_srcport="",
+            tcp_dstport="",
+            udp_srcport="50000",
+            udp_dstport="443",
+            udp_stream="1",
+            tls_handshake_extensions_server_name="",
+            dtls_handshake_extensions_server_name="dtls.example.com",
+        )
+        analysis = extract([row], self.options())
+        self.assertIn("dtls.example.com", analysis.domains)
+        self.assertEqual(analysis.domains["dtls.example.com"].sources["sni"], 1)
+        self.assertIn("dtls.example.com", analysis.destinations[SERVER].domains)
+
+    def test_http2_authority_fallback(self):
+        row = tcp_row(
+            tls_handshake_extensions_server_name="",
+            http_host="",
+            http2_headers_authority="h2.example.com:8443",
+        )
+        analysis = extract([row], self.options())
+        self.assertIn("h2.example.com", analysis.domains)
+        self.assertEqual(analysis.domains["h2.example.com"].sources["http"], 1)
+
+    def test_http_host_preferred_over_http2_authority(self):
+        row = tcp_row(
+            tls_handshake_extensions_server_name="",
+            http_host="plain.example.com",
+            http2_headers_authority="h2.example.com",
+        )
+        analysis = extract([row], self.options())
+        self.assertIn("plain.example.com", analysis.domains)
+        self.assertNotIn("h2.example.com", analysis.domains)
 
     def test_dns_attaches_name_to_destination(self):
         rows = [

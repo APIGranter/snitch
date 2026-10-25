@@ -46,6 +46,7 @@ FIELDS: List[str] = [
     "tls.handshake.extensions_alpn_str",
     "tls.handshake.version",
     "tls.handshake.ja4",
+    "dtls.handshake.extensions_server_name",
     "dns.flags.response",
     "dns.qry.name",
     "dns.qry.type",
@@ -55,6 +56,7 @@ FIELDS: List[str] = [
     "http.host",
     "http.user_agent",
     "http.request.method",
+    "http2.headers.authority",
     "quic.version",
 ]
 

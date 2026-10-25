@@ -18,8 +18,9 @@ The name plays on **SNI** (the hostname sent in the TLS handshake): SNItch
 ## What it does
 
 1. **Reads** a capture once with a streaming `tshark` pass (or captures live).
-2. **Extracts** destinations, clients, ports, protocols, DNS queries, TLS SNI
-   and HTTP hosts, and aggregates them into flows.
+2. **Extracts** destinations, clients, ports, protocols, DNS queries, TLS/DTLS
+   and QUIC SNI, HTTP/1.1 hosts and HTTP/2 `:authority` values, and aggregates
+   them into flows.
 3. **Enriches** IPs with geolocation, reverse DNS, optional RDAP ownership and
    VirusTotal reputation; optionally checks the Tor exit-node list.
 4. **Classifies** domains (target, chatbot, tracking, analytics, device
@@ -287,7 +288,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 97 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 100 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

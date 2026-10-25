@@ -417,8 +417,10 @@ class Extractor:
                 entry[3] += length
 
         # --- domains (SNI / HTTP / DNS), independent of destination ----
-        sni = row.get("tls_handshake_extensions_server_name") or ""
-        http_host = row.get("http_host") or ""
+        sni = (row.get("tls_handshake_extensions_server_name")
+               or row.get("dtls_handshake_extensions_server_name") or "")
+        http_host = (row.get("http_host")
+                     or row.get("http2_headers_authority") or "")
         # SNI and HTTP Host are only trustworthy on client -> server packets.
         domain_client = client_ip if selected and direction == "out" else ""
         if sni and selected and direction == "out":
