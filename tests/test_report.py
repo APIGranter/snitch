@@ -126,6 +126,7 @@ class ReportTests(unittest.TestCase):
         # Findings can be filtered by severity, confidence and category.
         self.assertIn("finding-confidence", html)
         self.assertIn("finding-category", html)
+        self.assertIn("finding-include-suppressed", html)
         # The finding modal explains which threshold fired with visual metrics.
         self.assertIn("function whyThisFired", html)
         self.assertIn("Why this fired", html)

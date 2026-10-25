@@ -43,7 +43,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   the active thresholds in a compact bar view, with raw evidence behind a
   collapsible block.
 - Findings tab filters by severity, confidence and finding category (plus free
-  text search) and shows how many rows match.
+  text search) and shows how many rows match. An **Include allowlisted** toggle
+  mixes suppressed findings back in with an `allowlisted` badge; their detail
+  modal explains that they are excluded from totals.
 - About tab threshold tuner: edit the profile or individual heuristic values,
   preview the equivalent CLI command, copy it and download a matching
   `snitch.json`.

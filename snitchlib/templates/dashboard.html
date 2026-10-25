@@ -217,6 +217,8 @@
   .why-fill{display:block;height:100%;background:var(--accent);border-radius:99px}
   .why-fill.hot{background:var(--warn)}
   .why-note{font-size:10.5px;color:var(--muted)}
+  .check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+  .check input{flex:none;margin:0}
   .section-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:16px 0 7px}
   .notice{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--warn);
           border-radius:9px;padding:10px 12px;color:var(--muted);font-size:12px;margin-bottom:14px}
@@ -520,6 +522,7 @@
         <select id="finding-category" aria-label="Filter by finding category">
           <option value="">All categories</option>
         </select>
+        <label class="check"><input type="checkbox" id="finding-include-suppressed"> Include allowlisted</label>
       </div>
       <div class="findings-grid" id="findings-grid"></div>
       <div id="suppressed-wrap" class="hidden">
@@ -1007,9 +1010,11 @@ function findingMeta(f){
   return bits.join(" · ");
 }
 function findingCard(f, index, compact){
+  const allowlisted = f._allowlisted
+    ? ' <span class="badge" title="Suppressed by the allowlist">allowlisted</span>' : "";
   return `<div class="finding" data-finding="${index}" role="button" tabindex="0"
-      style="border-left-color:${SEV_COLOURS[f.severity] || "var(--muted)"}">
-    <div class="ft">${severityPill(f.severity)} <span>${esc(f.title)}</span></div>
+      style="border-left-color:${SEV_COLOURS[f.severity] || "var(--muted)"}${f._allowlisted ? ";opacity:.8" : ""}">
+    <div class="ft">${severityPill(f.severity)} <span>${esc(f.title)}</span>${allowlisted}</div>
     <div class="fd">${esc(f.detail)}</div>
     ${compact ? "" : `<div class="fm">${esc(findingMeta(f))}</div>`}
   </div>`;
@@ -1030,9 +1035,17 @@ function fillKeyFindings(){
   });
 }
 let findingSeverity = "", findingQuery = "", findingConfidence = "", findingCategory = "";
+let findingIncludeSuppressed = false;
+function findingRows(){
+  const rows = (REPORT.findings || []).slice();
+  if (findingIncludeSuppressed) {
+    rows.push(...(REPORT.suppressed || []).map(f => ({...f, _allowlisted: true})));
+  }
+  return rows;
+}
 function filteredFindings(){
   const q = findingQuery.toLowerCase();
-  return (REPORT.findings || []).filter((f) => {
+  return findingRows().filter((f) => {
     if (findingSeverity && f.severity !== findingSeverity) return false;
     if (findingConfidence && f.confidence !== findingConfidence) return false;
     if (findingCategory && f.id !== findingCategory) return false;
@@ -1043,18 +1056,15 @@ function filteredFindings(){
 }
 function drawFindingsTab(){
   const rows = filteredFindings();
-  const total = (REPORT.findings||[]).length;
+  const total = findingRows().length;
   $("#findings-total").textContent = rows.length === total
-    ? total + " total" : rows.length + " of " + total;
+    ? total + " total" + (findingIncludeSuppressed && (REPORT.suppressed||[]).length ? " · incl. allowlisted" : "")
+    : rows.length + " of " + total;
   const grid = $("#findings-grid");
   if (!rows.length) { grid.innerHTML = '<div class="empty">No findings match this filter.</div>'; return; }
   grid.innerHTML = rows.slice(0, 200).map((f, i) => findingCard(f, i, false)).join("");
   $$("#findings-grid .finding").forEach((el) => {
-    const open = () => {
-      const f = rows[Number(el.dataset.finding)];
-      const realIndex = (REPORT.findings||[]).indexOf(f);
-      openFinding(realIndex);
-    };
+    const open = () => showFinding(rows[Number(el.dataset.finding)]);
     el.addEventListener("click", open);
     el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
   });
@@ -1074,7 +1084,7 @@ function initFindings(){
   });
   const category = $("#finding-category");
   if (category) {
-    const ids = Array.from(new Set((REPORT.findings || []).map(f => f.id).filter(Boolean))).sort();
+    const ids = Array.from(new Set(findingRows().map(f => f.id).filter(Boolean))).sort();
     ids.forEach(id => {
       const option = document.createElement("option");
       option.value = id;
@@ -1086,6 +1096,11 @@ function initFindings(){
       drawFindingsTab();
     });
   }
+  const include = $("#finding-include-suppressed");
+  if (include) include.addEventListener("change", (e) => {
+    findingIncludeSuppressed = e.target.checked;
+    drawFindingsTab();
+  });
 }
 
 function fillSuppressedFindings(){
@@ -1094,12 +1109,18 @@ function fillSuppressedFindings(){
   if (!wrap || !rows.length) return;
   wrap.classList.remove("hidden");
   $("#suppressed-total").textContent = rows.length + " hidden";
-  $("#suppressed-findings").innerHTML = rows.map((f) =>
-    `<div class="finding" style="border-left-color:${SEV_COLOURS[f.severity] || "var(--muted)"}">
+  $("#suppressed-findings").innerHTML = rows.map((f, i) =>
+    `<div class="finding" data-suppressed="${i}" role="button" tabindex="0"
+        style="border-left-color:${SEV_COLOURS[f.severity] || "var(--muted)"}">
       <div class="ft">${severityPill(f.severity)} <span>${esc(f.title)}</span></div>
       <div class="fd">${esc(f.detail)}</div>
       <div class="fm">Matching allowlist entry · ${esc(findingMeta(f))}</div>
     </div>`).join("");
+  $$("#suppressed-findings .finding").forEach((el) => {
+    const open = () => showFinding({...rows[Number(el.dataset.suppressed)], _allowlisted: true});
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  });
 }
 
 // ---------------------------------------------------------------- tables
@@ -1589,7 +1610,9 @@ function whyThisFired(f){
   return `<div class="section-title">Why this fired</div><div class="why">${rows.join("")}</div>`;
 }
 function openFinding(index){
-  const f = (REPORT.findings || [])[index];
+  showFinding((REPORT.findings || [])[index]);
+}
+function showFinding(f){
   if (!f) return;
   const related = relatedFlows(f);
   const win = f.window;
@@ -1598,7 +1621,10 @@ function openFinding(index){
          data-highlight-start="${Number(win.first_seen)}"
          data-highlight-end="${Number(win.last_seen)}">Show on timeline</button></div>`
     : "";
-  const body = `<div class="banner ${f.severity === "critical" ? "malicious" : f.severity === "high" ? "malicious" : f.severity === "medium" ? "suspicious" : f.severity === "low" ? "unknown" : "clean"}">
+  const allowlisted = f._allowlisted
+    ? `<div class="notice">Allowlisted: this finding is suppressed and excluded from totals.</div>` : "";
+  const body = allowlisted +
+    `<div class="banner ${f.severity === "critical" ? "malicious" : f.severity === "high" ? "malicious" : f.severity === "medium" ? "suspicious" : f.severity === "low" ? "unknown" : "clean"}">
       ${esc(f.confidence)} confidence · score ${Number(f.score||0).toFixed(2)}</div>` +
     `<p style="margin:0 0 12px">${esc(f.detail)}</p>` +
     (f.ips && f.ips.length ? `<div class="section-title">IPs</div><div class="chips">${f.ips.map(ip => `<span class="chip mono link" data-open-ip="${esc(ip)}" role="button" tabindex="0" title="Open destination details">${esc(ip)}</span>`).join("")}</div>` : "") +

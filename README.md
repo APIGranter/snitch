@@ -148,7 +148,9 @@ A finding is suppressed when one of its domains matches, or when **every** IP
 it references matches. Matching is boundary-aware. Suppressed findings are
 excluded from totals but listed in the dashboard's Findings tab, `summary.txt`
 and `data/analysis.json`; raw destinations/domains are still reported
-normally. Invalid entries fail fast with exit code 2.
+normally. Tick **Include allowlisted** in the Findings toolbar to mix them back
+in (marked, with a notice in the details modal). Invalid entries fail fast with
+exit code 2.
 
 Add a bracketed modifier to scope an entry to finding categories. `only`
 suppresses just those categories; `except` suppresses everything else:
