@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from snitchlib.enrich import (
     CACHE_VERSION, EnrichmentCache, EnrichOptions, apply_tor_exits, empty_geo,
@@ -65,6 +66,62 @@ class CacheTests(unittest.TestCase):
             cache.save()
             self.assertFalse(os.path.exists(path))
             self.assertIsNone(cache.get("geo", "1.2.3.4"))
+
+    def test_discard_removes_entry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cache = EnrichmentCache(os.path.join(folder, "cache.json"), QUIET)
+            cache.set("geo_failed", "1.2.3.4", {"error": "timeout"})
+            self.assertIsNotNone(cache.get("geo_failed", "1.2.3.4"))
+            cache.discard("geo_failed", "1.2.3.4")
+            self.assertIsNone(cache.get("geo_failed", "1.2.3.4"))
+            cache.discard("geo_failed", "not-there")  # harmless
+
+
+class GeoFailureCacheTests(unittest.TestCase):
+    def test_recent_failures_are_reused_then_refreshed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "cache.json")
+            analysis = Analysis()
+            for ip in ("203.0.113.1", "203.0.113.2"):
+                analysis.destinations[ip] = Destination(ip=ip)
+            options = EnrichOptions(
+                geo_ttl_days=30, geo_failure_ttl_hours=6, workers=2,
+                cache_path=path, logger=QUIET,
+            )
+            with mock.patch("snitchlib.enrich.geolocate",
+                            return_value={"_error": "provider down"}):
+                first = enrich_geo(analysis, options)
+            self.assertEqual(first["failed"], 2)
+            self.assertEqual(first["failed_cached"], 0)
+
+            # A second run must not touch the network while failures are fresh.
+            calls = []
+
+            def fake(ip):
+                calls.append(ip)
+                return {"country": "Testland", "cc": "TL", "source": "fake"}
+
+            second_analysis = Analysis()
+            for ip in ("203.0.113.1", "203.0.113.2"):
+                second_analysis.destinations[ip] = Destination(ip=ip)
+            with mock.patch("snitchlib.enrich.geolocate", side_effect=fake):
+                second = enrich_geo(second_analysis, options)
+            self.assertEqual(calls, [])
+            self.assertEqual(second["failed_cached"], 2)
+            self.assertEqual(second["failed"], 0)
+
+            # --refresh bypasses the negative cache and clears it on success.
+            third_analysis = Analysis()
+            for ip in ("203.0.113.1", "203.0.113.2"):
+                third_analysis.destinations[ip] = Destination(ip=ip)
+            refreshed = EnrichOptions(**{**options.__dict__, "refresh": True})
+            with mock.patch("snitchlib.enrich.geolocate", side_effect=fake):
+                third = enrich_geo(third_analysis, refreshed)
+            self.assertEqual(sorted(calls), ["203.0.113.1", "203.0.113.2"])
+            self.assertEqual(third["failed_cached"], 0)
+            self.assertEqual(third["looked_up"], 2)
+            cache = EnrichmentCache(path, QUIET)
+            self.assertIsNone(cache.get("geo_failed", "203.0.113.1"))
 
 
 class OfflineEnrichmentTests(unittest.TestCase):

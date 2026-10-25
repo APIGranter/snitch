@@ -118,7 +118,7 @@ class EnrichmentCache:
         self.enabled = enabled and bool(path)
         self.data: Dict[str, Any] = {
             "version": CACHE_VERSION, "geo": {}, "vt": {}, "rdns": {},
-            "rdap": {}, "domains": {}, "tor": {},
+            "rdap": {}, "domains": {}, "tor": {}, "geo_failed": {},
         }
         self._dirty = 0
         if self.enabled and path:
@@ -174,6 +174,13 @@ class EnrichmentCache:
         if self._dirty >= 25:
             self.save()
 
+    def discard(self, section: str, key: str) -> None:
+        """Remove an entry (e.g. a failure that has since succeeded)."""
+        if not self.enabled:
+            return
+        if self.data.get(section, {}).pop(key, None) is not None:
+            self._dirty += 1
+
     def save(self) -> None:
         if not self.enabled or not self.path:
             return
@@ -206,6 +213,7 @@ class EnrichOptions:
     cache_enabled: bool = True
     cache_path: Optional[str] = None
     geo_ttl_days: float = 30.0
+    geo_failure_ttl_hours: float = 6.0
     vt_ttl_days: float = 7.0
     rdns_ttl_days: float = 7.0
     tor_exits: bool = False
@@ -273,12 +281,22 @@ def geolocate(ip: str) -> Dict[str, Any]:
 def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
     cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
     todo = []
-    stats = {"total": len(analysis.destinations), "cached": 0, "looked_up": 0, "failed": 0}
+    stats = {"total": len(analysis.destinations), "cached": 0,
+             "looked_up": 0, "failed": 0, "failed_cached": 0}
+    failure_ttl_days = max(0.0, float(options.geo_failure_ttl_hours)) / 24.0
     for dest in analysis.destinations.values():
         cached = cache.get("geo", dest.ip, options.geo_ttl_days, options.refresh)
         if cached:
             dest.geo = {key: value for key, value in cached.items() if not key.startswith("_")}
             stats["cached"] += 1
+            continue
+        # Recent failures are remembered briefly so consecutive runs do not
+        # hammer an unreachable provider. ``--refresh`` bypasses this.
+        failure = (cache.get("geo_failed", dest.ip, failure_ttl_days, options.refresh)
+                   if failure_ttl_days else None)
+        if failure:
+            dest.geo = empty_geo()
+            stats["failed_cached"] += 1
         else:
             todo.append(dest.ip)
 
@@ -314,11 +332,13 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
                 if data.get("_error"):
                     failures += 1
                     results[ip] = empty_geo()
+                    cache.set("geo_failed", ip, {"error": str(data["_error"])[:300]})
                     options.logger.debug(f"  geo failed for {ip}: {data['_error']}")
                 else:
                     successes += 1
                     results[ip] = data
                     cache.set("geo", ip, data)
+                    cache.discard("geo_failed", ip)
                     options.logger.info(
                         f"  ({done}/{total}) {ip} -> {data.get('country') or '?'}"
                         f" / {data.get('isp') or '?'} [{data.get('source')}]"
@@ -332,6 +352,8 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
             if failures >= 5 and successes == 0 and done >= 5:
                 for ip in todo[start + len(batch):]:
                     results[ip] = empty_geo()
+                    cache.set("geo_failed", ip,
+                              {"error": "providers unreachable; skipped"})
                 stats["failed"] = len(todo) - successes
                 break
 
@@ -346,6 +368,7 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
     options.logger.info(
         f"Geolocation: {stats['cached']} cached, {successes} looked up, "
         f"{stats['failed']} failed"
+        + (f" ({stats['failed_cached']} recent failures reused)" if stats["failed_cached"] else "")
     )
     return stats
 

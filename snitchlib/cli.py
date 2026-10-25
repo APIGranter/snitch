@@ -61,6 +61,7 @@ DEFAULTS: Dict[str, Any] = {
     "vt_delay": 16.0,
     "vt_domains": 0,
     "workers": 8,
+    "geo_failure_ttl": 6.0,
     "no_geo": False,
     "no_vt": False,
     "no_rdns": False,
@@ -381,6 +382,9 @@ def build_parser() -> argparse.ArgumentParser:
                               help="Do not read or write the enrichment cache.")
     enrich_group.add_argument("--workers", type=int, default=8, metavar="N",
                               help="Concurrent workers for geo/rDNS/RDAP (default: 8).")
+    enrich_group.add_argument("--geo-failure-ttl", type=_positive_float,
+                              default=6.0, metavar="HOURS",
+                              help="Reuse recent geolocation failures for this long (default: 6).")
 
     # --- heuristic thresholds ---------------------------------------------
     heuristics = parser.add_argument_group("heuristic thresholds (advanced)")
@@ -869,6 +873,7 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         vt_delay=max(0.0, float(args.vt_delay or 0)),
         vt_domains=max(0, int(args.vt_domains or 0)),
         workers=max(1, int(args.workers or 8)),
+        geo_failure_ttl_hours=max(0.1, float(getattr(args, "geo_failure_ttl", 6.0) or 6.0)),
         refresh=bool(args.refresh),
         cache_enabled=not args.no_cache,
         cache_path=_prepare_cache(base_dir, args, logger),

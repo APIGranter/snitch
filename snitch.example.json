@@ -15,6 +15,7 @@
   "vt_delay": 16,
   "vt_domains": 25,
   "workers": 8,
+  "geo_failure_ttl": 6,
   "rdap": true,
   "check_tor_exits": true,
 

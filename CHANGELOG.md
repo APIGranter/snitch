@@ -28,6 +28,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   socket fallback) and retries with this machine's private IPv4 subnets before
   falling back to `--auto-clients` (with warnings). `--detect-local` opts in
   up front; explicit network options disable the fallback.
+- Cached geolocation failures separately from genuine "unknown" answers, with
+  `--geo-failure-ttl HOURS` (default 6) so provider outages are retried later
+  instead of hammering the API on every run.
 - CLI/config thresholds for every heuristic
   (`--beacon-min-events`, `--exfil-min-bytes`, `--dns-min-unique`,
   `--scan-min-ports`, `--tor-*`, …) with positive-value validation.
@@ -55,7 +58,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 124 unit/integration tests (no tshark or network required).
+- 126 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

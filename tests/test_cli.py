@@ -36,6 +36,7 @@ class ParserTests(unittest.TestCase):
             "--exclude-ip", "1.2.3.4", "--exclude-ip", "10.9.0.0/16",
             "--no-vt", "--no-geo", "--rdap", "--offline", "--workers", "3",
             "--fail-on", "high", "--min-packets", "5",
+            "--geo-failure-ttl", "2.5",
         ])
         self.assertEqual(args.exclude_ip, ["1.2.3.4", "10.9.0.0/16"])
         self.assertTrue(args.no_vt)
@@ -43,6 +44,9 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(args.workers, 3)
         self.assertEqual(args.fail_on, "high")
         self.assertEqual(args.min_packets, 5)
+        self.assertAlmostEqual(args.geo_failure_ttl, 2.5)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["x.pcap", "--geo-failure-ttl", "0"])
 
     def test_vt_domains_optional_value(self):
         parser = build_parser()

@@ -230,10 +230,13 @@ dashboard, and `--title` / `--handle` to brand the report.
 | `--refresh` | Ignore cached values and query again. |
 | `--no-cache` | Do not read or write the enrichment cache. |
 | `--workers N` | Concurrent workers for geo/rDNS/RDAP (default 8). |
+| `--geo-failure-ttl HOURS` | Reuse recent geolocation failures instead of retrying every run (default 6; `--refresh` bypasses). |
 
 Results are cached in `enrichment_cache.json` in the output base folder, with a
 versioned schema and TTLs. A 1.x `ip_cache.json` is imported automatically on
-first run. VirusTotal requests stay sequential to respect free-tier limits.
+first run. Transient geolocation failures are cached separately from genuine
+"unknown" results, so a provider outage does not poison the 30-day cache.
+VirusTotal requests stay sequential to respect free-tier limits.
 
 ---
 
@@ -302,7 +305,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 124 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 126 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
