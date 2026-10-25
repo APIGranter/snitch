@@ -44,13 +44,15 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - New dashboard: themes, map zoom/pan, timeline, charts, searchable/sortable/
   paginated tables (including a per-client view), findings and details modals,
   About page, CSV/JSON exports and a strict CSP. All dynamic values are escaped.
+- Best-effort client device names from DHCP hostname options (joined via MAC)
+  and NetBIOS name packets; shown in the Clients tab and `data/analysis.json`.
 - New outputs: `data/analysis.json`, `domains.csv`, `flows.csv`, `dns.csv`,
   `findings.csv`, `summary.txt` (1.x files are still written).
 - `--fail-on` severity gate (exit code 3), `--open`, `--title`, `--no-html`,
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 108 unit/integration tests (no tshark or network required).
+- 111 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

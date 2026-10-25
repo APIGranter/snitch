@@ -86,6 +86,7 @@ class ClientStat:
     destinations: Counter = field(default_factory=Counter)
     domains: Counter = field(default_factory=Counter)
     ports: Counter = field(default_factory=Counter)
+    hostnames: Counter = field(default_factory=Counter)
 
     @property
     def packets(self) -> int:

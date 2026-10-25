@@ -5,7 +5,8 @@ import unittest
 
 from snitchlib.extract import (
     ClientMatcher, ExtractionOptions, extract, is_local_ip, is_public_ip,
-    normalize_domain, normalize_ip, parse_ip, parse_networks, strip_host_port,
+    normalize_domain, normalize_hostname, normalize_ip, normalize_mac,
+    parse_ip, parse_networks, strip_host_port,
 )
 
 CLIENT = "10.0.0.2"
@@ -37,6 +38,11 @@ def tcp_row(**overrides):
         "tls_handshake_version": "0x0304",
         "tls_handshake_ja4": "t13d1516h2_8daaf6152771_02713d6af862",
         "dtls_handshake_extensions_server_name": "",
+        "dhcp_hw_mac_addr": "",
+        "dhcp_option_hostname": "",
+        "dhcp_ip_your": "",
+        "dhcp_ip_client": "",
+        "nbns_name": "",
         "dns_flags_response": "",
         "dns_qry_name": "",
         "dns_qry_type": "",
@@ -125,6 +131,14 @@ class AddressTests(unittest.TestCase):
         self.assertEqual(strip_host_port("[2001:db8::1]:443"), "2001:db8::1")
         self.assertEqual(strip_host_port("example.com"), "example.com")
 
+    def test_normalize_hostname_and_mac(self):
+        self.assertEqual(normalize_hostname(" DESKTOP-ABC. "), "desktop-abc")
+        self.assertEqual(normalize_hostname("LAPTOP<00>"), "laptop")
+        self.assertEqual(normalize_hostname("bad host"), "")
+        self.assertEqual(normalize_hostname("192.168.1.10"), "")
+        self.assertEqual(normalize_mac("AA-BB-CC-DD-EE-FF"), "aa:bb:cc:dd:ee:ff")
+        self.assertEqual(normalize_mac("00:00:00:00:00:00"), "")
+
 
 class ClientMatcherTests(unittest.TestCase):
     def test_client_mode(self):
@@ -211,6 +225,36 @@ class ExtractorTests(unittest.TestCase):
         analysis = extract([row], self.options())
         self.assertIn("plain.example.com", analysis.domains)
         self.assertNotIn("h2.example.com", analysis.domains)
+
+    def test_dhcp_hostname_is_attached_to_client(self):
+        dhcp = tcp_row(
+            frame_number="2",
+            frame_protocols="eth:ethertype:ip:udp:dhcp",
+            ip_src="192.168.1.1",
+            ip_dst="255.255.255.255",
+            tcp_srcport="", tcp_dstport="",
+            udp_srcport="67", udp_dstport="68",
+            tls_handshake_extensions_server_name="",
+            dhcp_hw_mac_addr="aa:bb:cc:dd:ee:ff",
+            dhcp_option_hostname="DESKTOP-ABC",
+            dhcp_ip_your=CLIENT,
+        )
+        analysis = extract([tcp_row(), dhcp], self.options())
+        self.assertIn("desktop-abc", analysis.clients[CLIENT].hostnames)
+
+    def test_nbns_name_is_attached_to_source_client(self):
+        nbns = tcp_row(
+            frame_number="2",
+            frame_protocols="eth:ethertype:ip:udp:nbns",
+            ip_src=CLIENT,
+            ip_dst="192.168.1.255",
+            tcp_srcport="", tcp_dstport="",
+            udp_srcport="137", udp_dstport="137",
+            tls_handshake_extensions_server_name="",
+            nbns_name="LAPTOP<00>",
+        )
+        analysis = extract([tcp_row(), nbns], self.options())
+        self.assertIn("laptop", analysis.clients[CLIENT].hostnames)
 
     def test_dns_attaches_name_to_destination(self):
         rows = [

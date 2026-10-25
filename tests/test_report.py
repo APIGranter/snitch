@@ -54,6 +54,7 @@ def sample_analysis():
         first_seen=1700000000.0, last_seen=1700000060.0,
         destinations=Counter({dest.ip: 100}),
         domains=Counter({"www.example.com": 5}), ports=Counter({443: 80}),
+        hostnames=Counter({"test-laptop": 3}),
     )
     analysis.flows[("10.0.0.2", dest.ip, "tcp", 443)] = Flow(
         client="10.0.0.2", dst=dest.ip, proto="tcp", dport=443,
@@ -96,6 +97,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["destinations"][0]["ip"], "93.184.216.34")
         self.assertEqual(report["destinations"][0]["geo"]["country"], "United States")
         self.assertEqual(report["flows"][0]["service"], "HTTPS")
+        self.assertEqual(report["clients"][0]["hostnames"], {"test-laptop": 3})
 
     def test_legacy_records(self):
         report = build_report(sample_analysis())
@@ -176,6 +178,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("\\u003cscript\\u003ealert(1)\\u003c/script\\u003e", html)
         self.assertIn('id="map"', html)
         self.assertIn('id="client-table"', html)
+        self.assertIn("test-laptop", html)
         self.assertIn("93.184.216.34", html)
         self.assertIn("MITRE ATT", html)
         self.assertIn("T1046 Network Service Discovery", html)

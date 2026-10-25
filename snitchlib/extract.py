@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -56,6 +57,31 @@ def is_local_ip(value: str) -> bool:
 def normalize_ip(value: str) -> str:
     obj = parse_ip(value)
     return str(obj) if obj is not None else value.strip()
+
+
+_NBNS_SUFFIX_RE = re.compile(r"<[0-9a-f]{2}>\s*$", re.IGNORECASE)
+_HOSTNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
+
+
+def normalize_hostname(value: str) -> str:
+    """Clean a DHCP/NetBIOS hostname for display, or return ``""``."""
+    name = str(value or "").replace("\x00", "").strip().strip(".")
+    name = _NBNS_SUFFIX_RE.sub("", name).strip().lower()
+    if not name or len(name) > 253 or ".." in name:
+        return ""
+    if parse_ip(name) is not None:
+        return ""
+    if not _HOSTNAME_RE.match(name):
+        return ""
+    return name
+
+
+def normalize_mac(value: str) -> str:
+    """Normalize a DHCP client MAC address, or return ``""``."""
+    raw = re.sub(r"[^0-9a-f]", "", str(value or "").lower())
+    if len(raw) != 12 or raw == "0" * 12:
+        return ""
+    return ":".join(raw[index:index + 2] for index in range(0, 12, 2))
 
 
 def parse_networks(values: Iterable[str]) -> List[ipaddress._BaseNetwork]:
@@ -213,6 +239,9 @@ class Extractor:
         self.detected_clients = {}  # type: Dict[str, int]
         self._seen_tcp_streams: Set[str] = set()
         self._seen_udp_streams: Set[Tuple[str, str, str, int, int]] = set()
+        self._hostnames: Dict[str, Counter] = {}
+        self._dhcp_names: Dict[str, Counter] = {}
+        self._dhcp_ips: Dict[str, Set[str]] = {}
 
     # -- small helpers ---------------------------------------------------
     def _dest(self, ip: str) -> Destination:
@@ -315,6 +344,8 @@ class Extractor:
         dst_client = self.is_client(dst)
         src_public = is_public_ip(src)
         dst_public = is_public_ip(dst)
+
+        self._feed_hostnames(row, src, src_client)
 
         if self.options.mode == "all":
             if dst_public and not src_public:
@@ -473,6 +504,31 @@ class Extractor:
             return
         self.analysis.stream_events.append((timestamp, client, dest, proto, dport))
 
+    def _remember_hostname(self, ip: str, name: str) -> None:
+        ip = normalize_ip(ip)
+        name = normalize_hostname(name)
+        if not ip or not name or ip in ("0.0.0.0", "::"):
+            return
+        self._hostnames.setdefault(ip, Counter())[name] += 1
+
+    def _feed_hostnames(self, row: Dict[str, str], src: str, src_client: bool) -> None:
+        """Collect best-effort device names from DHCP and NetBIOS packets."""
+        hostname = normalize_hostname(row.get("dhcp_option_hostname") or "")
+        mac = normalize_mac(row.get("dhcp_hw_mac_addr") or "")
+        if mac:
+            if hostname:
+                self._dhcp_names.setdefault(mac, Counter())[hostname] += 1
+            for key in ("dhcp_ip_your", "dhcp_ip_client"):
+                ip = normalize_ip(row.get(key) or "")
+                if ip and ip not in ("0.0.0.0", "::"):
+                    self._dhcp_ips.setdefault(mac, set()).add(ip)
+                    if hostname:
+                        self._remember_hostname(ip, hostname)
+
+        nbns = normalize_hostname(row.get("nbns_name") or "")
+        if nbns and src_client:
+            self._remember_hostname(src, nbns)
+
     def _feed_dns(self, row: Dict[str, str], timestamp: float, src: str, dst: str,
                   sport: int, dport: int, src_client: bool, dst_client: bool) -> None:
         qname_raw = row.get("dns_qry_name") or ""
@@ -545,6 +601,17 @@ class Extractor:
                 client.destinations = type(client.destinations)(
                     (ip, n) for ip, n in client.destinations.items() if ip in keep
                 )
+
+        # Join DHCP hostnames (learned by MAC) to the lease addresses, then
+        # attach every collected name to its client.
+        for mac, names in self._dhcp_names.items():
+            best = names.most_common(1)[0][0]
+            for ip in self._dhcp_ips.get(mac, ()):
+                self._remember_hostname(ip, best)
+        for ip, names in self._hostnames.items():
+            client = analysis.clients.get(ip)
+            if client is not None:
+                client.hostnames.update(names)
 
         analysis.capture["clients_detected"] = dict(
             sorted(self.detected_clients.items(), key=lambda kv: kv[1], reverse=True)

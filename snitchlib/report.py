@@ -196,6 +196,7 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
     for client in sorted(analysis.clients.values(), key=lambda c: c.bytes, reverse=True):
         client_rows.append({
             "ip": client.ip,
+            "hostnames": dict(client.hostnames.most_common(5)),
             "packets": client.packets,
             "packets_out": client.packets_out,
             "packets_in": client.packets_in,

@@ -374,6 +374,7 @@
         <table id="client-table">
           <thead><tr>
             <th data-sort="ip">Client</th>
+            <th data-sort="hostnames">Name</th>
             <th data-sort="packets" class="num">Packets</th>
             <th data-sort="bytes" class="num">Traffic</th>
             <th data-sort="destinations" class="num">Destinations</th>
@@ -1045,6 +1046,7 @@ function decorateDestinations(){
 }
 function sortValues(row, key){
   if (key === "vt") return (row.vt && row.vt.malicious) ?? -1;
+  if (key === "hostnames") return Object.keys(row.hostnames || {})[0] || "";
   if (key === "sources") return Object.values(row.sources||{}).reduce((a,b)=>a+Number(b||0),0);
   if (key === "ips") return Object.keys(row.ips||{}).length;
   if (key === "domains") return Array.isArray(row.domains) ? row.domainNames ? row.domainNames.length : row.domains.length : (row.domains || 0);
@@ -1154,8 +1156,10 @@ function drawClients(){
   const tbody = $("#client-table tbody");
   tbody.innerHTML = rows.map((row) => {
     const topDomains = (row.top_domains || []).map(x => x.domain);
+    const names = Object.keys(row.hostnames || {});
     return `<tr>
       <td class="mono">${esc(row.ip)}</td>
+      <td>${names.length ? `<span title="${esc(names.join(", "))}">${esc(names[0])}</span>${names.length > 1 ? `<br><span class="muted">+${names.length-1} more</span>` : ""}` : '<span class="muted">–</span>'}</td>
       <td class="num">${fmtNum(row.packets)}</td>
       <td class="num">${fmtBytes(row.bytes)}<br><span class="muted">↑${fmtBytes(row.bytes_out)} ↓${fmtBytes(row.bytes_in)}</span></td>
       <td class="num">${fmtNum(row.destinations)}</td>
@@ -1164,7 +1168,7 @@ function drawClients(){
       <td class="nowrap">${esc(fmtTime(row.last_seen))}</td>
     </tr>`;
   }).join("");
-  if (!rows.length) tbody.innerHTML = '<tr><td colspan="7" class="empty">No clients match this filter.</td></tr>';
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="8" class="empty">No clients match this filter.</td></tr>';
   $("#client-total").textContent = fmtNum(tables.clients.data.length) + " total";
   pager("clients");
 }
