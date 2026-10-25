@@ -10,6 +10,7 @@ from unittest import mock
 from snitchlib.enrich import (
     CACHE_VERSION, EnrichmentCache, EnrichOptions, _rdap_lookup, _rdap_source,
     apply_tor_exits, empty_geo, enrich, enrich_geo, enrich_rdap, enrich_rdns,
+    geolocate,
 )
 from snitchlib.models import Analysis, Destination
 from snitchlib.util import Logger, atomic_write_json
@@ -177,6 +178,71 @@ class RdapTests(unittest.TestCase):
             self.assertEqual(analysis.destinations["1.2.3.4"].rdap["name"], "Old owner")
 
 
+class GeoStatusTests(unittest.TestCase):
+    def _analysis(self):
+        analysis = Analysis()
+        analysis.destinations["203.0.113.10"] = Destination(ip="203.0.113.10")
+        return analysis
+
+    def test_offline_and_disabled_are_distinct(self):
+        analysis = self._analysis()
+        enrich_geo(analysis, EnrichOptions(offline=True, logger=QUIET,
+                                           cache_enabled=False))
+        self.assertEqual(analysis.destinations["203.0.113.10"].geo["status"], "offline")
+
+        analysis = self._analysis()
+        enrich_geo(analysis, EnrichOptions(geo=False, logger=QUIET,
+                                           cache_enabled=False))
+        self.assertEqual(analysis.destinations["203.0.113.10"].geo["status"], "disabled")
+
+    def test_recent_failure_is_reported(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "cache.json")
+            cache = EnrichmentCache(path, QUIET)
+            cache.set("geo_failed", "203.0.113.10", {"error": "timeout"})
+            cache.save()
+            analysis = self._analysis()
+            stats = enrich_geo(analysis, EnrichOptions(
+                offline=True, cache_path=path, logger=QUIET))
+        self.assertEqual(stats["failed_cached"], 1)
+        self.assertEqual(analysis.destinations["203.0.113.10"].geo["status"],
+                         "failed_cached")
+
+    def test_unknown_results_are_not_counted_as_failures(self):
+        analysis = self._analysis()
+        unknown = empty_geo("unknown")
+        with mock.patch("snitchlib.enrich.geolocate", return_value=unknown):
+            stats = enrich_geo(analysis, EnrichOptions(
+                logger=QUIET, cache_enabled=False))
+        self.assertEqual(stats["unknown"], 1)
+        self.assertEqual(stats["failed"], 0)
+        self.assertEqual(analysis.destinations["203.0.113.10"].geo["status"], "unknown")
+
+    def test_provider_answer_without_data_is_unknown(self):
+        with mock.patch("snitchlib.enrich._geo_ipwho",
+                        return_value={"source": "ipwho.is"}), \
+                mock.patch("snitchlib.enrich._geo_ipapi",
+                           return_value={"source": "ipapi.co"}):
+            result = geolocate("203.0.113.10")
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("_error", result)
+
+    def test_all_providers_failing_is_failed(self):
+        with mock.patch("snitchlib.enrich._geo_ipwho",
+                        return_value={"_error": "down"}), \
+                mock.patch("snitchlib.enrich._geo_ipapi",
+                           return_value={"_error": "down"}):
+            result = geolocate("203.0.113.10")
+        self.assertEqual(result["status"], "failed")
+
+    def test_successful_lookup_sets_ok_status(self):
+        payload = {"country": "Testland", "cc": "TL", "source": "ipwho.is"}
+        with mock.patch("snitchlib.enrich._geo_ipwho", return_value=dict(payload)):
+            result = geolocate("203.0.113.10")
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("_error", result)
+
+
 class OfflineEnrichmentTests(unittest.TestCase):
     def analysis(self, ip="203.0.113.10"):
         value = Analysis()
@@ -192,7 +258,7 @@ class OfflineEnrichmentTests(unittest.TestCase):
         analysis = self.analysis()
         stats = enrich_geo(analysis, self.options())
         self.assertEqual(stats["skipped"], 1)
-        self.assertEqual(analysis.destinations["203.0.113.10"].geo, empty_geo())
+        self.assertEqual(analysis.destinations["203.0.113.10"].geo, empty_geo("offline"))
 
     def test_offline_rdns_is_skipped(self):
         analysis = self.analysis()
@@ -204,7 +270,7 @@ class OfflineEnrichmentTests(unittest.TestCase):
         analysis = self.analysis()
         stats = enrich(analysis, self.options(geo=True, rdns=True, vt=True))
         self.assertTrue(stats["offline"])
-        self.assertEqual(analysis.destinations["203.0.113.10"].geo, empty_geo())
+        self.assertEqual(analysis.destinations["203.0.113.10"].geo, empty_geo("offline"))
         self.assertIn("geo", stats)
 
     def test_apply_tor_exits(self):

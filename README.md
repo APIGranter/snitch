@@ -259,7 +259,11 @@ dashboard, and `--title` / `--handle` to brand the report.
 Results are cached in `enrichment_cache.json` in the output base folder, with a
 versioned schema and TTLs. A 1.x `ip_cache.json` is imported automatically on
 first run. Transient geolocation failures are cached separately from genuine
-"unknown" results, so a provider outage does not poison the 30-day cache.
+"unknown" results, so a provider outage does not poison the 30-day cache. Each
+destination's `geo.status` distinguishes `ok`, `unknown` (the provider answered
+but had no record), `failed`, `failed_cached`, `offline`, `disabled`,
+`unavailable` and `local` (ASN/owner from `--asn-db`); the dashboard shows it in
+the destination details and CSV exports include `geo_status`/`geo_source`.
 VirusTotal requests stay sequential to respect free-tier limits.
 
 ---
@@ -329,7 +333,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 159 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 166 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

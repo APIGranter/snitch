@@ -81,6 +81,8 @@ not-a-network AS1 Skip me
         self.assertEqual(filled["asn"], "AS64500")
         self.assertEqual(filled["org"], "TEST-NET")
         self.assertEqual(filled["isp"], "TEST-NET")
+        self.assertEqual(filled["status"], "local")
+        self.assertEqual(filled["asn_source"], "asn.txt")
         self.assertEqual(analysis.destinations["8.8.8.8"].geo, {})
 
 

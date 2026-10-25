@@ -273,6 +273,15 @@ class ReportTests(unittest.TestCase):
                        "fetch(", "XMLHttpRequest", "<img", "<iframe"):
             self.assertNotIn(marker, html)
 
+    def test_flat_records_expose_geo_status(self):
+        report = build_report(sample_analysis())
+        report["destinations"][0]["geo"]["status"] = "unknown"
+        report["destinations"][0]["geo"]["source"] = "ipwho.is"
+        row = legacy_records(report)[0]
+        self.assertEqual(row["geo_status"], "unknown")
+        self.assertEqual(row["geo_source"], "ipwho.is")
+        self.assertIn("geo_status", report_module.LEGACY_FIELDS)
+
     def test_dashboard_without_geojson(self):
         report = build_report(sample_analysis())
         warnings = []

@@ -33,11 +33,11 @@ CACHE_VERSION = 2
 GEO_PROVIDERS = ("ipwho.is", "ipapi.co")
 
 
-def empty_geo() -> Dict[str, Any]:
+def empty_geo(status: str = "unknown") -> Dict[str, Any]:
     return {
         "country": "", "cc": "", "region": "", "city": "",
         "lat": None, "lon": None, "isp": "", "org": "", "asn": "",
-        "source": "",
+        "source": "", "status": status,
     }
 
 
@@ -267,14 +267,25 @@ def _geo_ipapi(ip: str) -> Dict[str, Any]:
 
 
 def geolocate(ip: str) -> Dict[str, Any]:
-    """Look up an IP with a primary provider and one fallback."""
+    """Look up an IP with a primary provider and one fallback.
+
+    The returned ``status`` distinguishes a provider that answered but had no
+    location record (``unknown``) from a failed lookup (``failed``).
+    """
     errors = []
+    answered = False
     for provider in (_geo_ipwho, _geo_ipapi):
         result = provider(ip)
         if result and not result.get("_error"):
-            return result
+            answered = True
+            if any(result.get(key) for key in (
+                    "country", "cc", "region", "city", "isp", "org", "asn")):
+                result["status"] = "ok"
+                return result
+            errors.append(f"{result.get('source') or 'provider'} returned no data")
+            continue
         errors.append(str((result or {}).get("_error", "unknown")))
-    result = empty_geo()
+    result = empty_geo("unknown" if answered else "failed")
     result["_error"] = "; ".join(errors)
     return result
 
@@ -283,12 +294,13 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
     cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
     todo = []
     stats = {"total": len(analysis.destinations), "cached": 0,
-             "looked_up": 0, "failed": 0, "failed_cached": 0}
+             "looked_up": 0, "unknown": 0, "failed": 0, "failed_cached": 0}
     failure_ttl_days = max(0.0, float(options.geo_failure_ttl_hours)) / 24.0
     for dest in analysis.destinations.values():
         cached = cache.get("geo", dest.ip, options.geo_ttl_days, options.refresh)
         if cached:
             dest.geo = {key: value for key, value in cached.items() if not key.startswith("_")}
+            dest.geo.setdefault("status", "ok" if dest.geo.get("country") else "unknown")
             stats["cached"] += 1
             continue
         # Recent failures are remembered briefly so consecutive runs do not
@@ -296,15 +308,16 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
         failure = (cache.get("geo_failed", dest.ip, failure_ttl_days, options.refresh)
                    if failure_ttl_days else None)
         if failure:
-            dest.geo = empty_geo()
+            dest.geo = empty_geo("failed_cached")
             stats["failed_cached"] += 1
         else:
             todo.append(dest.ip)
 
     if options.offline or not options.geo:
+        placeholder = "offline" if options.offline else "disabled"
         for dest in analysis.destinations.values():
             if not dest.geo:
-                dest.geo = empty_geo()
+                dest.geo = empty_geo(placeholder)
         cache.save()
         stats["skipped"] = len(todo)
         return stats
@@ -314,6 +327,7 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
     results: Dict[str, Dict[str, Any]] = {}
     failures = 0
     successes = 0
+    unknown = 0
     total = len(todo)
     done = 0
     workers = max(1, min(32, int(options.workers or 8)))
@@ -330,9 +344,15 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
                     data = future.result()
                 except Exception as exc:  # pragma: no cover - defensive
                     data = {"_error": str(exc)}
-                if data.get("_error"):
+                if data.get("status") == "unknown":
+                    unknown += 1
+                    results[ip] = data
+                    cache.set("geo", ip, data)
+                    cache.discard("geo_failed", ip)
+                    options.logger.debug(f"  ({done}/{total}) {ip} -> no location record")
+                elif data.get("_error"):
                     failures += 1
-                    results[ip] = empty_geo()
+                    results[ip] = empty_geo("failed")
                     cache.set("geo_failed", ip, {"error": str(data["_error"])[:300]})
                     options.logger.debug(f"  geo failed for {ip}: {data['_error']}")
                 else:
@@ -344,18 +364,18 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
                         f"  ({done}/{total}) {ip} -> {data.get('country') or '?'}"
                         f" / {data.get('isp') or '?'} [{data.get('source')}]"
                     )
-                if failures >= 5 and successes == 0 and done >= 5:
+                if failures >= 5 and successes == 0 and unknown == 0 and done >= 5:
                     options.logger.warn(
                         "Geolocation providers are unreachable; skipping the rest. "
                         "Use --offline to silence this."
                     )
                     break
-            if failures >= 5 and successes == 0 and done >= 5:
+            if failures >= 5 and successes == 0 and unknown == 0 and done >= 5:
                 for ip in todo[start + len(batch):]:
-                    results[ip] = empty_geo()
+                    results[ip] = empty_geo("failed")
                     cache.set("geo_failed", ip,
                               {"error": "providers unreachable; skipped"})
-                stats["failed"] = len(todo) - successes
+                stats["failed"] = len(todo) - successes - unknown
                 break
 
     for ip, data in results.items():
@@ -363,12 +383,13 @@ def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
             analysis.destinations[ip].geo = data
     for dest in analysis.destinations.values():
         if not dest.geo:
-            dest.geo = empty_geo()
+            dest.geo = empty_geo("unavailable")
     cache.save()
-    stats.update({"looked_up": successes, "failed": len(todo) - successes})
+    stats.update({"looked_up": successes, "unknown": unknown,
+                  "failed": max(0, len(todo) - successes - unknown)})
     options.logger.info(
         f"Geolocation: {stats['cached']} cached, {successes} looked up, "
-        f"{stats['failed']} failed"
+        f"{stats['unknown']} unknown, {stats['failed']} failed"
         + (f" ({stats['failed_cached']} recent failures reused)" if stats["failed_cached"] else "")
     )
     return stats

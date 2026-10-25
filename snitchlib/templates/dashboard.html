@@ -1381,6 +1381,15 @@ function openDestination(index){
   const methods = Object.entries(d.http_methods || {}).map(([m,n]) => `<span class="chip">${esc(m)} <b>${fmtNum(n)}</b></span>`).join("");
   const body = banner +
     kvRows([
+      ["Lookup", (() => {
+        const labels = {
+          ok: "resolved", unknown: "provider has no record",
+          failed: "lookup failed", failed_cached: "recent failure reused",
+          offline: "offline", disabled: "disabled", unavailable: "not looked up",
+          local: "ASN/organisation from local database",
+        };
+        return geo.status ? (labels[geo.status] || geo.status) : "–";
+      })()],
       ["Provider", geo.isp || geo.org || "–"],
       ["ASN", geo.asn || "–"],
       ["Network", rdap.name ? rdap.name + (rdap.range ? " (" + rdap.range + ")" : "") : "–"],
@@ -1562,7 +1571,8 @@ function renderAbout(){
   const enr = m.enrichment || {};
   const geo = enr.geo || {}, vt = enr.vt || {};
   const configRows = [
-    ["Geolocation", enr.offline ? "offline" : (geo.cached||0) + " cached / " + (geo.looked_up||0) + " looked up"],
+    ["Geolocation", enr.offline ? "offline" : (geo.cached||0) + " cached / " + (geo.looked_up||0) + " looked up" +
+      ((geo.unknown||0) ? " / " + geo.unknown + " unknown" : "")],
     ["Reverse DNS", enr.rdns ? ((enr.rdns.cached||0) + " cached / " + (enr.rdns.looked_up||0) + " found") : "disabled"],
     ["RDAP", enr.rdap ? ((enr.rdap.looked_up||0) + " looked up" + (enr.rdap.source ? " via " + enr.rdap.source : "")) : "disabled"],
     ["ASN database", enr.asn_db ? ((enr.asn_db.filled||0) + " filled / " + (enr.asn_db.matched||0) + " matched from " + (enr.asn_db.source||"local")) : "disabled"],

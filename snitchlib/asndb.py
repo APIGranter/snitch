@@ -235,6 +235,11 @@ def apply_asn_db(analysis: Analysis, database: AsnDatabase,
                 changed = True
         if changed:
             stats["filled"] += 1
+            # Make it visible when no online provider supplied anything and the
+            # local database was the only source of network ownership.
+            if geo.get("status") != "ok":
+                geo["status"] = "local"
+            geo["asn_source"] = database.source
     if stats["filled"]:
         logger.info(
             f"ASN database: filled {stats['filled']} of {stats['matched']} "

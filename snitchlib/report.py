@@ -413,6 +413,7 @@ LEGACY_FIELDS = [
     "packets", "packets_out", "packets_in", "bytes", "bytes_out", "bytes_in",
     "domains", "ports", "risk", "category", "rdns", "rdap_name",
     "vt_malicious", "vt_suspicious", "tor_exit", "first_seen", "last_seen",
+    "geo_status", "geo_source",
 ]
 
 
@@ -449,6 +450,8 @@ def _flat_record(destination: Dict[str, Any]) -> Dict[str, Any]:
         "tor_exit": destination.get("tor_exit", False),
         "first_seen": iso_utc(destination["first_seen"]),
         "last_seen": iso_utc(destination["last_seen"]),
+        "geo_status": geo.get("status", ""),
+        "geo_source": geo.get("source", ""),
     }
 
 

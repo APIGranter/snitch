@@ -25,6 +25,10 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   time-order flag recorded in the file (`meta.capinfos`).
 - HTTP methods and User-Agent strings from cleartext requests, shown in the
   destination details modal and `data/analysis.json`.
+- Geolocation results carry a `status` (`ok`, `unknown`, `failed`,
+  `failed_cached`, `offline`, `disabled`, `unavailable`, `local`) so "provider
+  has no record" is distinct from "lookup failed"; shown in destination details
+  and exported as `geo_status`/`geo_source` in the CSV and flat JSON.
 - Optional offline ASN database (`--asn-db PATH`): reads a MaxMind GeoLite2
   ASN CSV or `CIDR ASN Organisation` lines and fills missing ASN/owner values
   without overriding online results. Works with `--offline`.
@@ -76,7 +80,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 159 unit/integration tests (no tshark or network required).
+- 166 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed
