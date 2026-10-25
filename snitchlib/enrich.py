@@ -729,7 +729,7 @@ def enrich(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
             "geo" if options.geo and not options.offline else "",
             "rDNS" if options.rdns and not options.offline else "",
             "RDAP" if options.rdap and not options.offline else "",
-            f"VT" if options.vt_key and options.vt else "",
+            "VT" if options.vt_key and options.vt else "",
             "Tor exits" if options.tor_exits and not options.offline else "",
         ])) or "disabled"
     )

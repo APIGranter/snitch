@@ -28,7 +28,7 @@ from __future__ import annotations
 import ipaddress
 import os
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Sequence, Set, Tuple, Union
+from typing import Iterable, List, Sequence, Set, Tuple, Union
 
 from .models import Finding
 

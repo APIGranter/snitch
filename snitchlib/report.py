@@ -510,7 +510,7 @@ def save_summary_txt(report: Dict[str, Any], analysis: Analysis, path: str) -> N
         f"Risk        : {summary['malicious']} malicious, {summary['suspicious']} suspicious, "
         f"{summary['tor_exits']} Tor exit, {summary['clean']} clean, "
         f"{summary['unknown']} not checked",
-        f"Findings    : " + ", ".join(
+        "Findings    : " + ", ".join(
             f"{k}={v}" for k, v in sorted(
                 summary["findings_by_severity"].items(),
                 key=lambda kv: -SEVERITY_ORDER.get(kv[0], 0))
@@ -551,8 +551,8 @@ def save_summary_txt(report: Dict[str, Any], analysis: Analysis, path: str) -> N
         "Risk 'unknown' means VirusTotal was not queried or had no record.",
         "Findings are heuristics for triage, not proof of malicious activity.",
         "",
-        f"Full data: data/analysis.json, data/results.csv, data/flows.csv, data/dns.csv",
-        f"Dashboard: dashboard.html",
+        "Full data: data/analysis.json, data/results.csv, data/flows.csv, data/dns.csv",
+        "Dashboard: dashboard.html",
     ])
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
@@ -599,7 +599,7 @@ def build_dashboard(report: Dict[str, Any], out_html: str,
     try:
         with open(geo_path, encoding="utf-8") as handle:
             geojson = handle.read()
-    except OSError as exc:
+    except OSError:
         logger.warn(f"world.geo.json not found ({geo_path}); the map will be empty.")
         geojson = '{"type":"FeatureCollection","features":[]}'
 

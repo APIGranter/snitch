@@ -2,9 +2,8 @@
 """Tests for the local heuristic detectors."""
 
 import unittest
-from collections import Counter
 
-from snitchlib.analyze import AnalysisOptions, run_heuristics, run_threat_intel, sort_findings
+from snitchlib.analyze import run_heuristics, run_threat_intel, sort_findings
 from snitchlib.models import Analysis, Destination, DNSQueryStat, DomainStat, Flow
 
 

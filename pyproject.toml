@@ -46,3 +46,12 @@ snitchlib = ["world.geo.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "snitchlib.__version__" }
+
+[tool.ruff]
+# Keep linting aligned with the supported Python versions. The wider style
+# rule set is intentionally not enabled yet; see HANDOFF.md.
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E9", "F"]
