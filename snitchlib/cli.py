@@ -32,6 +32,7 @@ from .classify import normalize_target
 from .enrich import EnrichOptions, enrich
 from .extract import ExtractionOptions, extract, parse_networks
 from .models import SEVERITY_ORDER
+from .netinfo import format_networks, local_ipv4_networks
 from .report import build_dashboard, build_report, save_all
 from .util import (
     Logger, base_output_dir, human_bytes, human_duration, iso_utc,
@@ -50,6 +51,7 @@ DEFAULTS: Dict[str, Any] = {
     "src_ip": "",
     "all": False,
     "auto_clients": False,
+    "detect_local": False,
     "exclude_ip": None,
     "min_packets": 1,
     "allowlist": "",
@@ -336,6 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Count every public destination, without client filtering.")
     selection.add_argument("--auto-clients", action="store_true",
                            help="Treat every private/local address as a client (except gateways).")
+    selection.add_argument("--detect-local", action="store_true",
+                           help="Add this machine's local IPv4 subnets to --hotspot-net.")
     selection.add_argument("--hotspot-net", default="192.168.137.0/24",
                            metavar="CIDR[,CIDR]",
                            help="Client network(s) in the default client mode.")
@@ -472,6 +476,28 @@ def _client_options(args: argparse.Namespace) -> ExtractionOptions:
     )
 
 
+def _detected_client_networks():
+    """Local IPv4 subnets as a best-effort hint; never raises."""
+    try:
+        return list(local_ipv4_networks())
+    except Exception:  # pragma: no cover - defensive, discovery is best-effort
+        return []
+
+
+def _add_detected_networks(options: ExtractionOptions,
+                           networks) -> ExtractionOptions:
+    """Merge detected subnets into the client networks (deduplicated)."""
+    if not networks:
+        return options
+    seen = {str(network) for network in options.client_networks}
+    merged = list(options.client_networks)
+    for network in networks:
+        if str(network) not in seen:
+            merged.append(network)
+            seen.add(str(network))
+    return replace(options, client_networks=merged)
+
+
 def _analysis_options(args: argparse.Namespace,
                       allowlist: Allowlist) -> AnalysisOptions:
     """Build AnalysisOptions from the profile plus CLI/config overrides."""
@@ -504,7 +530,14 @@ def _heuristic_meta(args: argparse.Namespace) -> Dict[str, Any]:
 
 def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
                   display_name: str, display_filter: str, live: bool,
-                  interface: str = "") -> Dict[str, Any]:
+                  interface: str = "",
+                  client_networks: Optional[Sequence[Any]] = None,
+                  auto_clients: bool = False,
+                  detected_networks: Optional[Sequence[Any]] = None) -> Dict[str, Any]:
+    effective_networks = (
+        [str(network) for network in client_networks]
+        if client_networks is not None else _csv_values(args.hotspot_net)
+    )
     meta: Dict[str, Any] = {
         "file": display_name,
         "source": source,
@@ -515,9 +548,11 @@ def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
         "target": normalize_target(args.target),
         "mode": "all" if args.all else ("ip" if args.src_ip else "client"),
         "src_ips": _csv_values(args.src_ip),
-        "client_networks": _csv_values(args.hotspot_net),
+        "client_networks": effective_networks,
         "gateways": _csv_values(args.gateway),
         "excluded": _csv_values(args.exclude_ip),
+        "auto_clients": bool(auto_clients),
+        "detected_networks": [str(network) for network in (detected_networks or [])],
         "min_packets": int(args.min_packets or 1),
         "since": iso_utc(args.since),
         "until": iso_utc(args.until),
@@ -710,38 +745,81 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         logger.info(f"Allowlist: {allowlist.entries} entries ({allowlist.describe()})")
 
     logger.info(f"Capture: {source if not live else interface}")
+
+    detected_networks = []
+    if options.mode == "client" and not options.auto_clients \
+            and getattr(args, "detect_local", False):
+        detected_networks = _detected_client_networks()
+        if detected_networks:
+            options = _add_detected_networks(options, detected_networks)
+            logger.info(
+                "Detected local subnet(s): "
+                + format_networks(detected_networks)
+            )
+        else:
+            logger.warn(
+                "--detect-local found no private IPv4 subnets; "
+                "keeping --hotspot-net."
+            )
+
+    def run_extraction(current: ExtractionOptions):
+        rows = _limited(
+            iter_packets(source, tshark, display_filter, logger),
+            limit,
+        )
+        return extract(rows, current, logger)
+
     logger.info(f"Analyzing {display_name} with a single tshark pass ...")
-    rows = _limited(
-        iter_packets(source, tshark, display_filter, logger),
-        limit,
-    )
     try:
-        analysis = extract(rows, options, logger)
+        analysis = run_extraction(options)
     except TsharkError as exc:
         logger.error(str(exc))
         return 2
 
     if _should_auto_retry(args, analysis, options):
-        logger.warn(
-            "No clients matched the default hotspot network "
-            f"({DEFAULTS['hotspot_net']}); retrying with --auto-clients."
-        )
-        options = replace(options, auto_clients=True)
-        rows = _limited(iter_packets(source, tshark, display_filter, logger), limit)
-        try:
-            analysis = extract(rows, options, logger)
-        except TsharkError as exc:
-            logger.error(str(exc))
-            return 2
-        analysis.warnings.append(
-            "The default hotspot client filter matched no clients; "
-            "auto-clients fallback was used."
-        )
+        if not detected_networks:
+            detected_networks = _detected_client_networks()
+        if detected_networks:
+            logger.warn(
+                "No clients matched the default hotspot network "
+                f"({DEFAULTS['hotspot_net']}); retrying with detected local "
+                f"subnet(s): {format_networks(detected_networks)}."
+            )
+            options = _add_detected_networks(options, detected_networks)
+            try:
+                analysis = run_extraction(options)
+            except TsharkError as exc:
+                logger.error(str(exc))
+                return 2
+            if analysis.destinations or analysis.clients:
+                analysis.warnings.append(
+                    "The default hotspot client filter matched no clients; "
+                    "detected local subnet(s) were used instead: "
+                    + format_networks(detected_networks)
+                )
+        if not analysis.destinations and not analysis.clients:
+            logger.warn(
+                "No clients matched the default hotspot network or the "
+                "detected subnets; retrying with --auto-clients."
+            )
+            options = replace(options, auto_clients=True)
+            try:
+                analysis = run_extraction(options)
+            except TsharkError as exc:
+                logger.error(str(exc))
+                return 2
+            analysis.warnings.append(
+                "The default hotspot client filter matched no clients; "
+                "auto-clients fallback was used."
+            )
 
     analysis.capture.update(_capture_meta(
         args, tshark,
         source if not live else f"live:{interface}",
         display_name, display_filter, live, interface,
+        client_networks=options.client_networks,
+        auto_clients=options.auto_clients,
+        detected_networks=detected_networks,
     ))
 
     if not analysis.destinations:

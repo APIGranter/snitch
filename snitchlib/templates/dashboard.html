@@ -1437,6 +1437,9 @@ function renderAbout(){
     ["Packets", fmtNum(m.packets) + " total / " + fmtNum(m.analyzed_packets) + " analyzed"],
     ["Traffic", fmtBytes(m.bytes) + " total / " + fmtBytes(m.analyzed_bytes) + " analyzed"],
     ["Mode", m.mode || "–"], ["Target", m.target || "–"], ["tshark", m.tshark_version || m.tshark || "–"],
+    ...(m.auto_clients ? [["Client selection", "auto · every private address"]] :
+        (m.detected_networks || []).length ? [["Client selection", "detected · " + m.detected_networks.join(", ")]] :
+        [["Client selection", (m.client_networks || []).join(", ") || "–"]]),
     ["Generated", (m.generated_iso || "") + " UTC"], ["Tool", "SNItch " + (m.version || "")],
   ];
   // Long values need their own row; use a dedicated hash block for readability.

@@ -18,14 +18,16 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Live capture: `--live [IFACE]`, `--duration`, `--packet-limit`,
   `--list-interfaces`.
 - Time and filter controls: `--since`, `--until`, `--display-filter`.
-- Client selection: `--auto-clients`, `--hotspot-net`, `--gateway`,
-  `--exclude-ip`, `--min-packets`.
+- Client selection: `--auto-clients`, `--detect-local`, `--hotspot-net`,
+  `--gateway`, `--exclude-ip`, `--min-packets`.
 - Finding allowlist (`--allowlist PATH`): suppress findings for known-good
   IPs, CIDRs and domain suffixes (boundary-aware), with a suppression warning
   and a "Suppressed by allowlist" section in the dashboard.
-- Automatic fallback to `--auto-clients` when the default Windows-hotspot
-  filter matches no clients (with a warning); explicit network options disable
-  the fallback.
+- Automatic client-subnet discovery: when the default Windows-hotspot filter
+  matches no clients, SNItch parses `ip addr`/`ifconfig`/`ipconfig` (with a
+  socket fallback) and retries with this machine's private IPv4 subnets before
+  falling back to `--auto-clients` (with warnings). `--detect-local` opts in
+  up front; explicit network options disable the fallback.
 - CLI/config thresholds for every heuristic
   (`--beacon-min-events`, `--exfil-min-bytes`, `--dns-min-unique`,
   `--scan-min-ports`, `--tor-*`, …) with positive-value validation.
@@ -52,7 +54,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 116 unit/integration tests (no tshark or network required).
+- 124 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed
@@ -82,8 +84,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Existing commands, output folder names, `data/results.json`, `data/results.csv`
   and `domains/*.txt` remain valid. New files are additive.
 - Default client mode is still `192.168.137.0/24` with gateway
-  `192.168.137.1`; if that filter finds no clients, SNItch now retries once
-  with `--auto-clients`. Use `--src-ip`/`--all` for explicit control.
+  `192.168.137.1`; if that filter finds no clients, SNItch now retries with
+  this machine's detected private subnets and then `--auto-clients`.
+  Use `--src-ip`/`--all` for explicit control.
 
 ## [1.0.0] — Previous release
 

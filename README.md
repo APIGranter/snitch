@@ -104,14 +104,18 @@ when a key is present).
 
 By default SNItch assumes the Windows-hotspot layout used by the original
 project: clients in `192.168.137.0/24` and gateway `192.168.137.1`. If that
-default matches **no clients at all**, SNItch retries once with
-`--auto-clients` and records a warning. On other networks you can also pick one
-of these explicitly:
+default matches **no clients at all**, SNItch looks at this machine's private
+IPv4 subnets and retries with them; if those match nothing too, it retries
+once with `--auto-clients`. Each step is logged and recorded as a warning.
+`--detect-local` also adds the local subnets up front (useful when analysing a
+capture taken on this machine). On other networks you can also pick one of
+these explicitly:
 
 | Option | Meaning |
 |---|---|
 | `--src-ip IP[,IP]` | Only count traffic from these client IPs. |
 | `--auto-clients` | Treat every private/local address as a client (except gateways). |
+| `--detect-local` | Add this machine's private IPv4 subnets to the client networks. |
 | `--all` | Count every public destination, no client filtering. |
 | `--hotspot-net CIDR[,CIDR]` | Change the client network(s) for the default mode. |
 | `--gateway IP[,IP]` | Addresses never counted as clients. |
@@ -297,7 +301,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 116 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 124 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
