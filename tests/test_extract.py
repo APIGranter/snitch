@@ -2,6 +2,7 @@
 """Tests for the streaming extractor using synthetic tshark rows."""
 
 import unittest
+from collections import Counter
 
 from snitchlib.extract import (
     ClientMatcher, ExtractionOptions, extract, is_local_ip, is_public_ip,
@@ -53,6 +54,8 @@ def tcp_row(**overrides):
         "http_user_agent": "",
         "http_request_method": "",
         "http2_headers_authority": "",
+        "smtp_req_command": "",
+        "smtp_req_parameter": "",
         "quic_version": "",
     }
     row.update(overrides)
@@ -255,6 +258,30 @@ class ExtractorTests(unittest.TestCase):
         )
         analysis = extract([tcp_row(), nbns], self.options())
         self.assertIn("laptop", analysis.clients[CLIENT].hostnames)
+
+    def test_smtp_ehlo_hostname_is_attached_to_source_client(self):
+        smtp = tcp_row(
+            frame_number="2",
+            frame_protocols="eth:ethertype:ip:tcp:smtp",
+            tcp_dstport="25",
+            tls_handshake_extensions_server_name="",
+            smtp_req_command="EHLO",
+            smtp_req_parameter="MAIL-LAPTOP",
+        )
+        analysis = extract([tcp_row(), smtp], self.options())
+        self.assertIn("mail-laptop", analysis.clients[CLIENT].hostnames)
+
+    def test_smtp_mail_from_is_not_a_hostname(self):
+        smtp = tcp_row(
+            frame_number="2",
+            frame_protocols="eth:ethertype:ip:tcp:smtp",
+            tcp_dstport="25",
+            tls_handshake_extensions_server_name="",
+            smtp_req_command="MAIL",
+            smtp_req_parameter="<user@example.com>",
+        )
+        analysis = extract([tcp_row(), smtp], self.options())
+        self.assertEqual(analysis.clients[CLIENT].hostnames, Counter())
 
     def test_mdns_local_name_is_attached_to_source_client(self):
         mdns = dns_query_row(

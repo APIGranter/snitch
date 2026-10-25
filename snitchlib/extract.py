@@ -61,6 +61,10 @@ def normalize_ip(value: str) -> str:
 
 _NBNS_SUFFIX_RE = re.compile(r"<[0-9a-f]{2}>\s*$", re.IGNORECASE)
 _HOSTNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
+#: EHLO/HELO values that identify no useful device.
+SMTP_PLACEHOLDER_NAMES = frozenset({
+    "localhost", "localhost.localdomain", "unknown",
+})
 
 
 def normalize_hostname(value: str) -> str:
@@ -528,6 +532,14 @@ class Extractor:
         nbns = normalize_hostname(row.get("nbns_name") or "")
         if nbns and src_client:
             self._remember_hostname(src, nbns)
+
+        # SMTP clients announce themselves in HELO/EHLO; MAIL/RCPT parameters
+        # contain addresses, not device names, so only those two commands count.
+        smtp_command = (row.get("smtp_req_command") or "").strip().upper()
+        if src_client and smtp_command in ("HELO", "EHLO"):
+            name = normalize_hostname(row.get("smtp_req_parameter") or "")
+            if name and name not in SMTP_PLACEHOLDER_NAMES:
+                self._remember_hostname(src, name)
 
         # mDNS/LLMNR names ending in .local are usually the device's own name.
         if src_client and (row.get("dns_qry_name") or ""):

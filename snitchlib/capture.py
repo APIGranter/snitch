@@ -62,6 +62,8 @@ FIELDS: List[str] = [
     "http.user_agent",
     "http.request.method",
     "http2.headers.authority",
+    "smtp.req.command",
+    "smtp.req.parameter",
     "quic.version",
 ]
 

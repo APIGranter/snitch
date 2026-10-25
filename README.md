@@ -208,7 +208,8 @@ dashboard, and `--title` / `--handle` to brand the report.
 - Summary cards, traffic timeline and protocol/country/category charts
 - Searchable, sortable, paginated tables: destinations, clients, domains,
   flows, DNS, findings
-- Clients tab with device names learned from DHCP, NetBIOS and mDNS when present
+- Clients tab with device names learned from DHCP, NetBIOS, mDNS and SMTP
+  HELO/EHLO when present
 - Findings panel with severity, confidence, evidence, ATT&CK references and
   remediation guidance; finding IPs/domains and related flows are clickable
   for fast pivoting
@@ -308,7 +309,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 127 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 129 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
