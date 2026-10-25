@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import tempfile
 import unittest
 from collections import Counter
@@ -283,6 +284,22 @@ class ReportTests(unittest.TestCase):
         for marker in ("<script src=", "<link", "@import", "url(",
                        "fetch(", "XMLHttpRequest", "<img", "<iframe"):
             self.assertNotIn(marker, html)
+
+    def test_dashboard_element_ids_and_tabs_are_registered(self):
+        path = report_module.resource_path(os.path.join("templates", "dashboard.html"))
+        with open(path, encoding="utf-8") as handle:
+            html = handle.read()
+        declared = re.findall(r'id="([\w-]+)"', html)
+        duplicates = [name for name, count in Counter(declared).items() if count > 1]
+        self.assertEqual(duplicates, [], "duplicate element id in dashboard")
+        ids = set(declared)
+        referenced = set(re.findall(r'\$\$?\("#([\w-]+)', html))
+        referenced |= set(re.findall(r'getElementById\("([\w-]+)"\)', html))
+        # A typo in a selector usually fails silently at runtime; catch it here.
+        self.assertEqual(sorted(referenced - ids), [], "selector references a missing id")
+        tabs = set(re.findall(r'data-tab="([\w-]+)"', html))
+        sections = set(re.findall(r'data-section="([\w-]+)"', html))
+        self.assertEqual(tabs, sections, "every tab needs a matching section")
 
     def test_flat_records_expose_geo_status(self):
         report = build_report(sample_analysis())
