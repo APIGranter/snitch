@@ -1608,6 +1608,21 @@ function whyThisFired(f){
   } else if (f.id === "tor_exit") {
     rows.push(whyFact("Tor exit list", "match", "the address is present in the downloaded exit-node set"));
   }
+  if (!rows.length) {
+    // Unknown/future finding type: show the scalar evidence instead of hiding it.
+    Object.entries(e).slice(0, 8).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === "") return;
+      let display;
+      if (Array.isArray(value)) {
+        display = value.slice(0, 6).map(String).join(", ") + (value.length > 6 ? " …" : "");
+      } else if (typeof value === "object") {
+        display = JSON.stringify(value);
+      } else {
+        display = String(value);
+      }
+      rows.push(whyFact(key.replace(/_/g, " "), display, ""));
+    });
+  }
   if (!rows.length) return "";
   return `<div class="section-title">Why this fired</div><div class="why">${rows.join("")}</div>`;
 }
