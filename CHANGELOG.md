@@ -12,7 +12,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 
 - `snitchlib/` package (importable, testable) with a thin `snitch.py` wrapper
   and `python -m snitchlib` support.
-- One streaming `tshark` pass (TLS/DTLS/QUIC SNI, DNS, HTTP/1.1 Host and
+- One streaming `tshark` pass (TLS/DTLS/QUIC/gQUIC SNI, DNS, HTTP/1.1 Host and
   HTTP/2 `:authority`, flows, TCP flags, retransmissions) instead of several
   slower passes.
 - Live capture: `--live [IFACE]`, `--duration`, `--packet-limit`,
@@ -71,7 +71,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 147 unit/integration tests (no tshark or network required).
+- 148 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

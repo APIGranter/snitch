@@ -52,6 +52,7 @@ FIELDS: List[str] = [
     "tls.handshake.version",
     "tls.handshake.ja4",
     "dtls.handshake.extensions_server_name",
+    "gquic.tag.sni",
     "dns.flags.response",
     "dns.qry.name",
     "dns.qry.type",

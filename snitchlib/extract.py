@@ -477,7 +477,8 @@ class Extractor:
 
         # --- domains (SNI / HTTP / DNS), independent of destination ----
         sni = (row.get("tls_handshake_extensions_server_name")
-               or row.get("dtls_handshake_extensions_server_name") or "")
+               or row.get("dtls_handshake_extensions_server_name")
+               or row.get("gquic_tag_sni") or "")
         http_host = (row.get("http_host")
                      or row.get("http2_headers_authority") or "")
         # Plain HTTP requests expose the client software; keep a bounded copy.

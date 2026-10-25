@@ -39,6 +39,7 @@ def tcp_row(**overrides):
         "tls_handshake_version": "0x0304",
         "tls_handshake_ja4": "t13d1516h2_8daaf6152771_02713d6af862",
         "dtls_handshake_extensions_server_name": "",
+        "gquic_tag_sni": "",
         "dhcp_hw_mac_addr": "",
         "dhcp_option_hostname": "",
         "dhcp_ip_your": "",
@@ -216,6 +217,22 @@ class ExtractorTests(unittest.TestCase):
         self.assertIn("dtls.example.com", analysis.domains)
         self.assertEqual(analysis.domains["dtls.example.com"].sources["sni"], 1)
         self.assertIn("dtls.example.com", analysis.destinations[SERVER].domains)
+
+    def test_gquic_sni_is_extracted(self):
+        row = tcp_row(
+            frame_protocols="eth:ethertype:ip:udp:gquic",
+            tcp_srcport="",
+            tcp_dstport="",
+            udp_srcport="50000",
+            udp_dstport="443",
+            udp_stream="1",
+            tls_handshake_extensions_server_name="",
+            gquic_tag_sni="gquic.example.com",
+        )
+        analysis = extract([row], self.options())
+        self.assertIn("gquic.example.com", analysis.domains)
+        self.assertEqual(analysis.domains["gquic.example.com"].sources["sni"], 1)
+        self.assertIn("gquic.example.com", analysis.destinations[SERVER].domains)
 
     def test_http2_authority_fallback(self):
         row = tcp_row(
