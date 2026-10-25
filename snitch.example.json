@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Copy this file to snitch.json (or pass --config PATH) to set defaults.",
+    "Keys are the long CLI options with underscores instead of dashes.",
+    "CLI flags always win over values from this file.",
+    "Keep secrets (vt_key) out of a tracked file; use vt_key.txt or the",
+    "VT_API_KEY environment variable instead."
+  ],
+
+  "handle": "@APIGranter",
+  "target": "example.com",
+  "hotspot_net": "192.168.137.0/24",
+  "gateway": "192.168.137.1",
+
+  "vt_delay": 16,
+  "vt_domains": 25,
+  "workers": 8,
+  "rdap": true,
+  "check_tor_exits": true,
+
+  "open": false,
+  "fail_on": "high"
+}

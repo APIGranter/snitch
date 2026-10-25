@@ -1,18 +1,46 @@
+# --- secrets -----------------------------------------------------------------
 # Real API key: never commit
 vt_key.txt
+# Local config may contain a key; use snitch.example.json as the template
+snitch.json
 
-# Per-analysis result folders
+# --- generated analysis results ---------------------------------------------
+# Per-analysis result folders (name_YYYY-MM-DD_HHMMSS/)
 *_2???-??-??_*/
+data/
+domains/
+dashboard.html
+enrichment_cache.json
 ip_cache.json
 cache_ips.json
 
-# Network captures
+# --- network captures --------------------------------------------------------
 *.pcap
 *.pcapng
 
-# PyInstaller / Python
+# --- PyInstaller / packaging -------------------------------------------------
 build/
 dist/
 *.spec
+!snitch.spec
+*.egg-info/
+.eggs/
+*.whl
+
+# --- Python ------------------------------------------------------------------
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- editors / OS ------------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

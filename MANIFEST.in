@@ -1,0 +1,15 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include snitch.example.json
+include snitch.spec
+include snitch.py
+include run.sh
+include run.bat
+include vt_key.example.txt
+
+recursive-include snitchlib/templates *.html
+include snitchlib/world.geo.json
+
+recursive-include tests *.py
+recursive-include scripts *.py *.sh *.bat
