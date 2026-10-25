@@ -137,6 +137,7 @@
   .legend .dotc{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:7px;flex:0 0 auto}
   .timeline-wrap{position:relative}
   svg#timeline{width:100%;height:auto;touch-action:none}
+  .tl-highlight{fill:var(--warn);opacity:.20;pointer-events:none;stroke:var(--warn);stroke-width:1}
   .tl-grid{stroke:var(--line);stroke-width:.6}
   .tl-axis{fill:var(--muted);font-size:10px}
   .tl-out{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
@@ -312,6 +313,7 @@
             <option value="bytes">Bytes</option>
             <option value="packets">Packets</option>
           </select>
+          <button class="ghost hidden" type="button" id="tl-clear">Clear highlight</button>
         </div>
       </div>
       <div class="timeline-wrap" id="timeline-wrap">
@@ -822,6 +824,7 @@ function moveTip(event){
 
 // ---------------------------------------------------------------- timeline
 let timelineMetric = "bytes";
+let timelineHighlight = null;
 function drawTimeline(){
   const svg = $("#timeline");
   const data = (REPORT.timeline && REPORT.timeline.points) || [];
@@ -875,6 +878,23 @@ function drawTimeline(){
   svg.appendChild(mk("path", {d:makePath(outValue), class:"tl-out"}));
   svg.appendChild(mk("path", {d:makePath(inValue), class:"tl-in"}));
 
+  const clearButton = $("#tl-clear");
+  if (clearButton) clearButton.classList.toggle("hidden", !timelineHighlight);
+  if (timelineHighlight && data.length) {
+    const bucket = Number(REPORT.timeline.bucket_seconds) || 1;
+    const base = Number(data[0][0]);
+    const idxAt = (ts) => Math.max(0, Math.min(data.length - 1,
+      Math.floor((Math.max(base, Math.min(ts, base + bucket * (data.length - 1))) - base) / bucket)));
+    const i0 = idxAt(Number(timelineHighlight.start));
+    const i1 = idxAt(Number(timelineHighlight.end));
+    const x1 = Math.min(x(i0), x(i1));
+    const x2 = Math.max(x(i0), x(i1));
+    svg.appendChild(mk("rect", {
+      x: x1.toFixed(1), y: T, width: Math.max(2, x2 - x1).toFixed(1),
+      height: plotH, class: "tl-highlight",
+    }));
+  }
+
   const labelEvery = Math.max(1, Math.ceil(data.length / 7));
   data.forEach((p, i) => {
     if (i % labelEvery && i !== data.length - 1) return;
@@ -905,6 +925,7 @@ function drawTimeline(){
 }
 function initTimeline(){
   $("#tl-metric").addEventListener("change", (e) => { timelineMetric = e.target.value; drawTimeline(); });
+  $("#tl-clear").addEventListener("click", () => { timelineHighlight = null; drawTimeline(); });
 }
 
 // ---------------------------------------------------------------- bars / donut
@@ -1421,12 +1442,19 @@ function openFinding(index){
   const f = (REPORT.findings || [])[index];
   if (!f) return;
   const related = relatedFlows(f);
+  const win = f.window;
+  const highlight = (win && win.first_seen && win.last_seen)
+    ? `<div class="modal-actions"><button class="btn sec" type="button"
+         data-highlight-start="${Number(win.first_seen)}"
+         data-highlight-end="${Number(win.last_seen)}">Show on timeline</button></div>`
+    : "";
   const body = `<div class="banner ${f.severity === "critical" ? "malicious" : f.severity === "high" ? "malicious" : f.severity === "medium" ? "suspicious" : f.severity === "low" ? "unknown" : "clean"}">
       ${esc(f.confidence)} confidence · score ${Number(f.score||0).toFixed(2)}</div>` +
     `<p style="margin:0 0 12px">${esc(f.detail)}</p>` +
     (f.ips && f.ips.length ? `<div class="section-title">IPs</div><div class="chips">${f.ips.map(ip => `<span class="chip mono link" data-open-ip="${esc(ip)}" role="button" tabindex="0" title="Open destination details">${esc(ip)}</span>`).join("")}</div>` : "") +
     (f.domains && f.domains.length ? `<div class="section-title">Domains</div><div class="chips">${f.domains.map(d => `<span class="chip link" data-open-domain="${esc(d)}" role="button" tabindex="0" title="Open domain details">${esc(d)}</span>`).join("")}</div>` : "") +
     (related || "") +
+    highlight +
     (f.evidence && Object.keys(f.evidence).length ? `<div class="section-title">Evidence</div><pre class="evidence">${esc(JSON.stringify(f.evidence, null, 2))}</pre>` : "") +
     (f.mitre && f.mitre.length ? `<div class="section-title">MITRE ATT&amp;CK</div><div class="chips">${f.mitre.map(t => `<span class="chip mono">${esc(t)}</span>`).join("")}</div>` : "") +
     (f.remediation ? `<div class="section-title">Recommended next steps</div><p style="margin:0">${esc(f.remediation)}</p>` : "");
@@ -1454,6 +1482,19 @@ function initModal(){
   $("#modal-close").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
   $("#modal-body").addEventListener("click", (e) => {
+    const highlight = e.target.closest("[data-highlight-start]");
+    if (highlight) {
+      timelineHighlight = {
+        start: Number(highlight.dataset.highlightStart),
+        end: Number(highlight.dataset.highlightEnd),
+      };
+      closeModal();
+      switchTab("overview");
+      drawTimeline();
+      const wrap = $("#timeline-wrap");
+      if (wrap) setTimeout(() => wrap.scrollIntoView({behavior:"smooth", block:"center"}), 50);
+      return;
+    }
     const target = e.target.closest("[data-open-ip],[data-open-domain],[data-open-flow]");
     if (!target) return;
     if (target.dataset.openIp !== undefined) {

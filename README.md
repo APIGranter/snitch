@@ -212,7 +212,8 @@ dashboard, and `--title` / `--handle` to brand the report.
   HELO/EHLO when present
 - Findings panel with severity, confidence, evidence, ATT&CK references and
   remediation guidance; finding IPs/domains and related flows are clickable
-  for fast pivoting
+  for fast pivoting, and each finding can highlight its time window on the
+  timeline
 - Destination details include hostnames, services, clients, TLS/ALPN, JA4
   fingerprints and HTTP methods/user agents observed in cleartext
 - Large captures stay responsive: the dashboard embeds the top 5,000

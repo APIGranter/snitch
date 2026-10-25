@@ -108,6 +108,37 @@ def _timeline(analysis: Analysis, target_points: int = 160) -> Dict[str, Any]:
 # Report construction
 # --------------------------------------------------------------------------
 
+def _finding_window(finding: Any, analysis: Analysis) -> Optional[Dict[str, float]]:
+    """Best-effort time range for a finding, for timeline highlighting."""
+    starts: List[float] = []
+    ends: List[float] = []
+
+    def add(value: Any, bucket: List[float]) -> None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return
+        if number > 0:
+            bucket.append(number)
+
+    evidence = getattr(finding, "evidence", None) or {}
+    add(evidence.get("first_seen"), starts)
+    add(evidence.get("last_seen"), ends)
+    for ip in getattr(finding, "ips", None) or []:
+        dest = analysis.destinations.get(ip)
+        if dest is not None:
+            add(dest.first_seen, starts)
+            add(dest.last_seen, ends)
+    for name in getattr(finding, "domains", None) or []:
+        stat = analysis.domains.get(name)
+        if stat is not None:
+            add(stat.first_seen, starts)
+            add(stat.last_seen, ends)
+    if not starts or not ends:
+        return None
+    return {"first_seen": min(starts), "last_seen": max(ends)}
+
+
 def build_report(analysis: Analysis, handle: str = "", title: str = "",
                  generated: Optional[float] = None) -> Dict[str, Any]:
     """Create the JSON-serializable report used by every output format."""
@@ -256,10 +287,22 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
             "response_ms": round(stat.response_time_ms, 2),
         })
 
-    findings = [asdict(finding) for finding in analysis.findings]
+    findings = []
+    for finding in analysis.findings:
+        row = asdict(finding)
+        window = _finding_window(finding, analysis)
+        if window:
+            row["window"] = window
+        findings.append(row)
     findings.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), -f.get("score", 0)))
     findings = findings[:MAX_DASHBOARD_FINDINGS]
-    suppressed = [asdict(finding) for finding in analysis.suppressed_findings]
+    suppressed = []
+    for finding in analysis.suppressed_findings:
+        row = asdict(finding)
+        window = _finding_window(finding, analysis)
+        if window:
+            row["window"] = window
+        suppressed.append(row)
     suppressed.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), -f.get("score", 0)))
     suppressed = suppressed[:MAX_DASHBOARD_FINDINGS]
     findings_by_severity = Counter(f["severity"] for f in findings)

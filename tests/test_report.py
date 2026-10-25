@@ -94,6 +94,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["clean"], 1)
         self.assertEqual(report["summary"]["findings"], 1)
         self.assertEqual(report["findings"][0]["id"], "test_finding")
+        self.assertEqual(
+            report["findings"][0]["window"],
+            {"first_seen": 1700000000.0, "last_seen": 1700000060.0},
+        )
         self.assertEqual(report["destinations"][0]["ip"], "93.184.216.34")
         self.assertEqual(report["destinations"][0]["geo"]["country"], "United States")
         self.assertEqual(report["flows"][0]["service"], "HTTPS")
@@ -247,6 +251,8 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Investigate the endpoint.", html)
         self.assertIn("data-open-ip", html)
         self.assertIn("Related flows", html)
+        self.assertIn("Show on timeline", html)
+        self.assertIn("data-highlight-start", html)
         # The bundled GeoJSON must be embedded, not fetched.
         self.assertIn('"type":"FeatureCollection"', html)
 
