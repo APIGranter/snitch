@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Set
 
 from .util import Logger
 
@@ -22,7 +22,7 @@ class TsharkError(RuntimeError):
     """Raised when tshark is missing, fails to read a capture or is interrupted."""
 
 
-#: Fields requested from tshark. Keep the order in sync with ``_FIELD_NAMES``.
+#: Fields requested from tshark (unknown ones are filtered per version).
 FIELDS: List[str] = [
     "frame.number",
     "frame.time_epoch",
@@ -65,7 +65,53 @@ FIELDS: List[str] = [
     "quic.version",
 ]
 
-_FIELD_NAMES = [f.replace(".", "_") for f in FIELDS]
+#: Cache of field names reported by ``tshark -G fields``, keyed by binary.
+_AVAILABLE_FIELDS: Dict[str, Set[str]] = {}
+
+
+def available_fields(tshark: str) -> Optional[Set[str]]:
+    """Return the field names this tshark knows, or ``None`` if unknown."""
+    if tshark in _AVAILABLE_FIELDS:
+        return _AVAILABLE_FIELDS[tshark]
+    try:
+        proc = _run([tshark, "-G", "fields"], timeout=60)
+    except TsharkError:
+        return None
+    if proc.returncode != 0:
+        return None
+    names = set()
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3 and parts[0] == "F" and parts[2].strip():
+            names.add(parts[2].strip())
+    # A tiny/garbled set means the output was not understood: trust FIELDS.
+    if "frame.number" not in names:
+        return None
+    _AVAILABLE_FIELDS[tshark] = names
+    return names
+
+
+def filter_fields(supported: Optional[Set[str]], logger: Logger) -> List[str]:
+    """Drop fields this tshark does not know, warning once about them.
+
+    tshark exits with an error when asked for an unknown ``-e`` field, so
+    filtering keeps captures working across Wireshark versions.
+    """
+    if not supported:
+        return list(FIELDS)
+    missing = [field for field in FIELDS if field not in supported]
+    if missing:
+        logger.warn(
+            "tshark does not expose "
+            + ", ".join(missing)
+            + "; continuing without those fields."
+        )
+    return [field for field in FIELDS if field in supported]
+
+
+def select_fields(tshark: str, logger: Logger) -> List[str]:
+    """Choose the extraction fields supported by the installed tshark."""
+    return filter_fields(available_fields(tshark), logger)
 
 
 def find_tshark(manual_path: Optional[str] = None) -> Optional[str]:
@@ -164,7 +210,9 @@ def iter_packets(pcap: str, tshark: str, display_filter: str,
     stderr goes to a temporary file to avoid pipe-buffer deadlocks.
     """
     cmd = [tshark, "-n", "-r", pcap, "-Y", display_filter, "-T", "fields"]
-    for field in FIELDS:
+    fields = select_fields(tshark, logger)
+    field_names = [field.replace(".", "_") for field in fields]
+    for field in fields:
         cmd.extend(["-e", field])
     logger.debug("tshark: " + " ".join(cmd))
 
@@ -186,12 +234,12 @@ def iter_packets(pcap: str, tshark: str, display_filter: str,
                 if not line:
                     continue
                 values = line.split("\t")
-                if len(values) < len(FIELDS):
-                    values.extend([""] * (len(FIELDS) - len(values)))
+                if len(values) < len(fields):
+                    values.extend([""] * (len(fields) - len(values)))
                 count += 1
                 if progress_every and count % progress_every == 0:
                     logger.info(f"  ... {count:,} packets read")
-                yield dict(zip(_FIELD_NAMES, values[:len(FIELDS)]))
+                yield dict(zip(field_names, values[:len(fields)]))
         except KeyboardInterrupt:
             proc.terminate()
             try:

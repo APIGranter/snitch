@@ -297,7 +297,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 112 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 116 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

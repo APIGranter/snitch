@@ -52,7 +52,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 112 unit/integration tests (no tshark or network required).
+- 116 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed
@@ -72,6 +72,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   and missing `dport` in flow search.
 - Malformed newline when writing cached VirusTotal results.
 - Summary TXT metadata keys and 1.x cache import edge cases.
+- Fields unknown to the installed tshark are now discovered once via
+  `tshark -G fields` and skipped with a warning instead of making the whole
+  capture fail on older Wireshark versions.
 
 ### Compatibility
 
