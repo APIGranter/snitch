@@ -147,11 +147,15 @@ with exit code 2.
 
 ### Tune heuristic thresholds
 
-The detectors use conservative defaults. Advanced users can adjust them on the
-CLI or in `snitch.json` (underscored keys, e.g. `"beacon_min_events": 8`):
+The detectors use conservative defaults. Pick a preset with
+`--profile {quiet,balanced,aggressive}` (`balanced` is the default), then
+override individual thresholds on the CLI or in `snitch.json` (underscored
+keys, e.g. `"beacon_min_events": 8`). Explicit values always win over the
+profile.
 
-| Option | Default | Effect |
+| Option | Default (balanced) | Effect |
 |---|---|---|
+| `--profile NAME` | `balanced` | Preset: `quiet`, `balanced` or `aggressive`. |
 | `--beacon-min-events N` | 5 | Connections before beaconing is considered. |
 | `--beacon-max-cv RATIO` | 0.50 | Maximum variation of intervals (lower = stricter). |
 | `--beacon-min-interval S` | 5 | Minimum median beacon interval. |
@@ -291,7 +295,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 105 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 107 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

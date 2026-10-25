@@ -28,6 +28,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - CLI/config thresholds for every heuristic
   (`--beacon-min-events`, `--exfil-min-bytes`, `--dns-min-unique`,
   `--scan-min-ports`, `--tor-*`, …) with positive-value validation.
+- Heuristic presets: `--profile {quiet,balanced,aggressive}`; explicit
+  thresholds override the preset, and the effective profile is recorded in
+  report metadata/About.
 - Enrichment: concurrent geolocation/rDNS/RDAP, optional VirusTotal domain
   checks (`--vt-domains`), Tor exit-node checks, `--offline`, `--refresh`,
   `--no-cache`, configurable `--workers`.
@@ -46,7 +49,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 105 unit/integration tests (no tshark or network required).
+- 107 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

@@ -1370,6 +1370,7 @@ function renderAbout(){
   const h = m.heuristics || {};
   if (Object.keys(h).length) {
     configRows.push(["Heuristic thresholds",
+      (h.profile ? h.profile + " profile · " : "") +
       h.beacon_min_events + " beacon events, " + fmtBytes(h.exfil_min_bytes) +
       " upload, " + h.dns_min_unique + " DNS names, " + h.scan_min_ports + " ports, " +
       h.tor_max_destinations + " Tor dest."]);

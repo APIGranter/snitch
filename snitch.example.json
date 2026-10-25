@@ -18,6 +18,7 @@
   "rdap": true,
   "check_tor_exits": true,
 
+  "profile": "balanced",
   "open": false,
   "fail_on": "high"
 }

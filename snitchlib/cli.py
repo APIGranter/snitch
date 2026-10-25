@@ -19,8 +19,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from . import APP_NAME, __version__
 from .analyze import (
-    AnalysisOptions, apply_categories, run_heuristics, run_threat_intel,
-    sort_findings,
+    AnalysisOptions, apply_categories, profile_thresholds, run_heuristics,
+    run_threat_intel, sort_findings,
 )
 from .allowlist import Allowlist, AllowlistError
 from .capture import (
@@ -79,6 +79,7 @@ DEFAULTS: Dict[str, Any] = {
     "until": None,
     "display_filter": "",
     "config": None,
+    "profile": "balanced",
     "beacon_min_events": None,
     "beacon_max_cv": None,
     "beacon_min_interval": None,
@@ -379,6 +380,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- heuristic thresholds ---------------------------------------------
     heuristics = parser.add_argument_group("heuristic thresholds (advanced)")
+    heuristics.add_argument("--profile", choices=("quiet", "balanced", "aggressive"),
+                            default="balanced",
+                            help="Threshold preset; explicit --beacon-*/--dns-*/… flags win (default: balanced).")
     heuristics.add_argument("--beacon-min-events", type=_positive_int, default=None,
                             metavar="N", help="Minimum connections before flagging beaconing (default: 5).")
     heuristics.add_argument("--beacon-max-cv", type=_positive_float, default=None,
@@ -470,26 +474,32 @@ def _client_options(args: argparse.Namespace) -> ExtractionOptions:
 
 def _analysis_options(args: argparse.Namespace,
                       allowlist: Allowlist) -> AnalysisOptions:
-    """Build AnalysisOptions from the CLI/config overrides."""
+    """Build AnalysisOptions from the profile plus CLI/config overrides."""
+    profile = getattr(args, "profile", None) or "balanced"
+    values = profile_thresholds(profile)
     overrides = {
         name: getattr(args, name)
         for name in HEURISTIC_FIELDS
         if getattr(args, name, None) is not None
     }
+    values.update(overrides)
     options = AnalysisOptions(target=normalize_target(args.target),
                               allowlist=allowlist)
-    return replace(options, **overrides) if overrides else options
+    return replace(options, **values) if values else options
 
 
 def _heuristic_meta(args: argparse.Namespace) -> Dict[str, Any]:
     """Effective heuristic thresholds for the report metadata."""
-    defaults = AnalysisOptions()
-    return {
-        name: (getattr(args, name)
-               if getattr(args, name, None) is not None
-               else getattr(defaults, name))
-        for name in HEURISTIC_FIELDS
-    }
+    profile = getattr(args, "profile", None) or "balanced"
+    meta = profile_thresholds(profile)
+    for name in HEURISTIC_FIELDS:
+        value = getattr(args, name, None)
+        if value is not None:
+            meta[name] = value
+        elif name not in meta:
+            meta[name] = getattr(AnalysisOptions(), name)
+    meta["profile"] = profile
+    return meta
 
 
 def _capture_meta(args: argparse.Namespace, tshark: str, source: str,

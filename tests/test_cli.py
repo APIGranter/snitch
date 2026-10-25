@@ -9,8 +9,8 @@ from unittest import mock
 
 from snitchlib.cli import (
     _analysis_options, _apply_config, _client_options, _csv_values,
-    _extract_config_arg, _find_config_path, _load_config, _should_auto_retry,
-    build_parser, read_api_key,
+    _extract_config_arg, _find_config_path, _heuristic_meta, _load_config,
+    _should_auto_retry, build_parser, read_api_key,
 )
 from snitchlib.allowlist import Allowlist
 from snitchlib.extract import ExtractionOptions
@@ -70,6 +70,38 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(options.scan_min_ports, 100)
         self.assertEqual(options.tor_max_destinations, 2)
         self.assertEqual(options.tor_min_bytes, 4096)
+
+    def test_heuristic_profiles(self):
+        parser = build_parser()
+        allowlist = Allowlist.empty()
+        quiet = _analysis_options(
+            parser.parse_args(["x.pcap", "--profile", "quiet"]), allowlist)
+        self.assertEqual(quiet.beacon_min_events, 8)
+        self.assertEqual(quiet.dns_min_unique, 40)
+        aggressive = _analysis_options(
+            parser.parse_args(["x.pcap", "--profile", "aggressive"]), allowlist)
+        self.assertEqual(aggressive.beacon_min_events, 4)
+        self.assertEqual(aggressive.scan_min_ports, 15)
+        # Explicit flags always win over the profile.
+        mixed = _analysis_options(
+            parser.parse_args([
+                "x.pcap", "--profile", "aggressive", "--dns-min-unique", "99",
+            ]), allowlist)
+        self.assertEqual(mixed.dns_min_unique, 99)
+        self.assertEqual(mixed.beacon_min_events, 4)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["x.pcap", "--profile", "unknown"])
+
+    def test_heuristic_meta_records_effective_profile(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "x.pcap", "--profile", "quiet", "--scan-min-ports", "33",
+        ])
+        meta = _heuristic_meta(args)
+        self.assertEqual(meta["profile"], "quiet")
+        self.assertEqual(meta["scan_min_ports"], 33)
+        self.assertEqual(meta["dns_min_unique"], 40)
+        self.assertEqual(meta["tor_min_bytes"], 1024 * 1024)
 
     def test_heuristic_defaults_and_invalid_values(self):
         parser = build_parser()

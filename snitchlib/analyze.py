@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .classify import (
     CAT_CDN, CAT_CLOUD, TOR_PORTS, base_domain, classify_domain,
@@ -43,6 +43,40 @@ class AnalysisOptions:
 
 # Ports where "regular" traffic is expected and not interesting for beaconing.
 _BEACON_IGNORE_PORTS = {53, 123, 5353, 1900, 67, 68}
+
+#: Threshold presets. Explicit CLI/config values always win over the profile.
+HEURISTIC_PROFILES: Dict[str, Dict[str, Any]] = {
+    "quiet": {
+        "beacon_min_events": 8,
+        "beacon_max_cv": 0.35,
+        "exfil_min_bytes": 25 * 1024 * 1024,
+        "exfil_ratio": 8.0,
+        "dns_min_unique": 40,
+        "scan_min_ports": 50,
+        "tor_max_destinations": 2,
+        "tor_min_bytes": 1024 * 1024,
+    },
+    "balanced": {},
+    "aggressive": {
+        "beacon_min_events": 4,
+        "beacon_max_cv": 0.65,
+        "exfil_min_bytes": 2 * 1024 * 1024,
+        "exfil_ratio": 3.0,
+        "dns_min_unique": 12,
+        "scan_min_ports": 15,
+        "tor_max_destinations": 8,
+        "tor_min_bytes": 100 * 1024,
+    },
+}
+
+
+def profile_thresholds(name: str) -> Dict[str, Any]:
+    """Return a copy of the threshold overrides for a named profile."""
+    try:
+        return dict(HEURISTIC_PROFILES[name])
+    except KeyError:
+        choices = ", ".join(HEURISTIC_PROFILES)
+        raise ValueError(f"unknown heuristic profile {name!r} (choose {choices})") from None
 
 #: Analyst playbooks keyed by finding id: (remediation, MITRE ATT&CK refs).
 PLAYBOOKS: Dict[str, Tuple[str, List[str]]] = {
