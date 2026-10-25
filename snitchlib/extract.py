@@ -65,6 +65,11 @@ _HOSTNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
 SMTP_PLACEHOLDER_NAMES = frozenset({
     "localhost", "localhost.localdomain", "unknown",
 })
+#: Leading reply codes / status words in cleartext service banners.
+_BANNER_PREFIX_RE = re.compile(
+    r"^\s*(?:\d{3}[- ]+|\+\s*OK\s+|\*\s+(?:OK|PREAUTH|BYE)\s+)", re.IGNORECASE
+)
+_BANNER_TOKEN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,252}[A-Za-z0-9])?")
 
 
 def normalize_hostname(value: str) -> str:
@@ -175,6 +180,25 @@ def normalize_domain(value: str) -> str:
     if parse_ip(name) is not None:
         return ""
     return name
+
+
+def banner_domain(value: str) -> str:
+    """Pick a server hostname out of a cleartext service greeting banner.
+
+    FTP/SMTP/POP3 servers often announce ``hostname.example.com`` in their
+    welcome line, which gives an otherwise unknown destination IP a name.
+    """
+    text = str(value or "").replace("\r", " ").replace("\n", " ")
+    text = _BANNER_PREFIX_RE.sub("", text, count=1)
+    for token in _BANNER_TOKEN_RE.findall(text):
+        name = normalize_domain(token)
+        if not name:
+            continue
+        # Skip version strings and numeric noise (e.g. "1.3.5").
+        if all(label.isdigit() for label in name.split(".")):
+            continue
+        return name
+    return ""
 
 
 def strip_host_port(host: str) -> str:
@@ -480,6 +504,25 @@ class Extractor:
             name = normalize_domain(strip_host_port(_split_multi(http_host)[0]))
             if name:
                 self._touch_domain(name, "http", timestamp, domain_client, dest_ip)
+                self._dest(dest_ip).domains[name] += 1
+                if client_ip:
+                    self._flow(client_ip, dest_ip, proto, server_port).domains[name] += 1
+                self._client_domain(client_ip, name)
+
+        # Cleartext service greetings (server -> client) name the server.
+        if selected and direction == "in":
+            name = ""
+            source = ""
+            if _to_int(row.get("ftp_response_code")) == 220:
+                name, source = banner_domain(row.get("ftp_response_arg") or ""), "ftp"
+            if not name and _to_int(row.get("smtp_response_code")) == 220:
+                name, source = banner_domain(row.get("smtp_response") or ""), "smtp"
+            if not name and (row.get("imap_response_status") or "").strip().upper() in ("OK", "PREAUTH"):
+                name, source = banner_domain(row.get("imap_response") or ""), "imap"
+            if not name and (row.get("pop_response_indicator") or "").strip().upper() == "+OK":
+                name, source = banner_domain(row.get("pop_response_description") or ""), "pop3"
+            if name:
+                self._touch_domain(name, source, timestamp, client_ip, dest_ip)
                 self._dest(dest_ip).domains[name] += 1
                 if client_ip:
                     self._flow(client_ip, dest_ip, proto, server_port).domains[name] += 1

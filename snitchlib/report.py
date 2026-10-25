@@ -692,6 +692,11 @@ def dashboard_payload(report: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(report)
     payload["destinations"] = dest_view
     payload["domains"] = domain_view
+    # ``classification`` repeats every domain grouped by category and
+    # ``category_hits`` duplicates the chart totals; both are only used by the
+    # text/JSON exports, so skip them in the embedded dashboard JSON.
+    payload.pop("classification", None)
+    payload.pop("category_hits", None)
     return payload
 
 

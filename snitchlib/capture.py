@@ -64,6 +64,14 @@ FIELDS: List[str] = [
     "http2.headers.authority",
     "smtp.req.command",
     "smtp.req.parameter",
+    "ftp.response.code",
+    "ftp.response.arg",
+    "smtp.response.code",
+    "smtp.response",
+    "imap.response.status",
+    "imap.response",
+    "pop.response.indicator",
+    "pop.response.description",
     "quic.version",
 ]
 

@@ -154,6 +154,11 @@ class ReportTests(unittest.TestCase):
             # The full report is untouched for JSON/CSV exports.
             self.assertEqual(len(report["destinations"]), 2)
             self.assertEqual(len(report["domains"]), 2)
+            # Dashboard-only keys that duplicate other data are dropped.
+            self.assertNotIn("classification", payload)
+            self.assertNotIn("category_hits", payload)
+            self.assertIn("classification", report)
+            self.assertIn("category_hits", report)
 
             with tempfile.TemporaryDirectory() as folder:
                 out = os.path.join(folder, "dashboard.html")

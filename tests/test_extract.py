@@ -5,9 +5,9 @@ import unittest
 from collections import Counter
 
 from snitchlib.extract import (
-    ClientMatcher, ExtractionOptions, extract, is_local_ip, is_public_ip,
-    normalize_domain, normalize_hostname, normalize_ip, normalize_mac,
-    parse_ip, parse_networks, strip_host_port,
+    ClientMatcher, ExtractionOptions, banner_domain, extract, is_local_ip,
+    is_public_ip, normalize_domain, normalize_hostname, normalize_ip,
+    normalize_mac, parse_ip, parse_networks, strip_host_port,
 )
 
 CLIENT = "10.0.0.2"
@@ -56,6 +56,14 @@ def tcp_row(**overrides):
         "http2_headers_authority": "",
         "smtp_req_command": "",
         "smtp_req_parameter": "",
+        "ftp_response_code": "",
+        "ftp_response_arg": "",
+        "smtp_response_code": "",
+        "smtp_response": "",
+        "imap_response_status": "",
+        "imap_response": "",
+        "pop_response_indicator": "",
+        "pop_response_description": "",
         "quic_version": "",
     }
     row.update(overrides)
@@ -242,6 +250,69 @@ class ExtractorTests(unittest.TestCase):
         dest = analysis.destinations[SERVER]
         self.assertEqual(dest.user_agents["TestBrowser/1.0 (Linux)"], 1)
         self.assertEqual(dest.http_methods["GET"], 1)
+
+    def test_banner_domain_skips_versions_and_reply_codes(self):
+        self.assertEqual(banner_domain("220-ftp.example.net FTP ready"), "ftp.example.net")
+        self.assertEqual(banner_domain("220 ProFTPD 1.3.5\r\n"), "")
+        self.assertEqual(banner_domain("+OK pop.example.com ready"), "pop.example.com")
+        self.assertEqual(banner_domain(""), "")
+
+    def test_ftp_banner_names_destination(self):
+        banner = tcp_row(
+            frame_number="2",
+            ip_src=SERVER, ip_dst=CLIENT,
+            tcp_srcport="21", tcp_dstport="50000",
+            frame_protocols="eth:ethertype:ip:tcp:ftp",
+            tls_handshake_extensions_server_name="",
+            ftp_response_code="220",
+            ftp_response_arg="ftp.example.net FTP server ready",
+        )
+        analysis = extract([tcp_row(), banner], self.options())
+        self.assertIn("ftp.example.net", analysis.destinations[SERVER].domains)
+        self.assertEqual(analysis.domains["ftp.example.net"].sources["ftp"], 1)
+        self.assertEqual(analysis.domains["ftp.example.net"].ips[SERVER], 1)
+
+    def test_smtp_banner_names_destination(self):
+        banner = tcp_row(
+            frame_number="2",
+            ip_src=SERVER, ip_dst=CLIENT,
+            tcp_srcport="25", tcp_dstport="50000",
+            frame_protocols="eth:ethertype:ip:tcp:smtp",
+            tls_handshake_extensions_server_name="",
+            smtp_response_code="220",
+            smtp_response="220 mail.example.org ESMTP Postfix\r\n",
+        )
+        analysis = extract([tcp_row(), banner], self.options())
+        self.assertIn("mail.example.org", analysis.destinations[SERVER].domains)
+        self.assertEqual(analysis.domains["mail.example.org"].sources["smtp"], 1)
+
+    def test_imap_response_names_destination(self):
+        banner = tcp_row(
+            frame_number="2",
+            ip_src=SERVER, ip_dst=CLIENT,
+            tcp_srcport="143", tcp_dstport="50000",
+            frame_protocols="eth:ethertype:ip:tcp:imap",
+            tls_handshake_extensions_server_name="",
+            imap_response_status="OK",
+            imap_response="A1 OK imap.example.com ready",
+        )
+        analysis = extract([tcp_row(), banner], self.options())
+        self.assertIn("imap.example.com", analysis.destinations[SERVER].domains)
+        self.assertEqual(analysis.domains["imap.example.com"].sources["imap"], 1)
+
+    def test_pop3_banner_names_destination(self):
+        banner = tcp_row(
+            frame_number="2",
+            ip_src=SERVER, ip_dst=CLIENT,
+            tcp_srcport="110", tcp_dstport="50000",
+            frame_protocols="eth:ethertype:ip:tcp:pop",
+            tls_handshake_extensions_server_name="",
+            pop_response_indicator="+OK",
+            pop_response_description="pop.example.com POP3 server ready",
+        )
+        analysis = extract([tcp_row(), banner], self.options())
+        self.assertIn("pop.example.com", analysis.destinations[SERVER].domains)
+        self.assertEqual(analysis.domains["pop.example.com"].sources["pop3"], 1)
 
     def test_dhcp_hostname_is_attached_to_client(self):
         dhcp = tcp_row(

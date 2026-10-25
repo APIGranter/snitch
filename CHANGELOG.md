@@ -22,6 +22,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--gateway`, `--exclude-ip`, `--min-packets`.
 - HTTP methods and User-Agent strings from cleartext requests, shown in the
   destination details modal and `data/analysis.json`.
+- Server hostnames announced in cleartext FTP/SMTP/IMAP/POP3 greeting banners
+  are linked to the destination IP and domain table (tagged IMAP responses;
+  current tshark does not dissect untagged IMAP greetings).
 - Finding allowlist (`--allowlist PATH`): suppress findings for known-good
   IPs, CIDRs and domain suffixes (boundary-aware), with a suppression warning
   and a "Suppressed by allowlist" section in the dashboard.
@@ -62,7 +65,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 131 unit/integration tests (no tshark or network required).
+- 136 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed
