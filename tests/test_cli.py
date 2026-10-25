@@ -64,6 +64,12 @@ class ParserTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 parser.parse_args(["x.pcap", "--rdap-url", bad])
 
+    def test_asn_db_flag(self):
+        parser = build_parser()
+        self.assertEqual(parser.parse_args(["x.pcap"]).asn_db, "")
+        self.assertEqual(
+            parser.parse_args(["x.pcap", "--asn-db", "asn.csv"]).asn_db, "asn.csv")
+
     def test_heuristic_threshold_flags(self):
         parser = build_parser()
         args = parser.parse_args([

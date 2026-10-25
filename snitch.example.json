@@ -18,6 +18,7 @@
   "geo_failure_ttl": 6,
   "rdap": true,
   "rdap_url": "https://rdap.org/ip/{ip}",
+  "asn_db": "",
   "check_tor_exits": true,
 
   "profile": "balanced",

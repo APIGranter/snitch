@@ -24,6 +24,7 @@ from .analyze import (
     run_threat_intel, sort_findings,
 )
 from .allowlist import Allowlist, AllowlistError
+from .asndb import AsnDatabase, apply_asn_db
 from .capture import (
     TsharkError, build_display_filter, default_live_path, find_tshark,
     iter_packets, list_interfaces, live_capture, platform_note, resolve_interface,
@@ -71,6 +72,7 @@ DEFAULTS: Dict[str, Any] = {
     "no_cache": False,
     "rdap": False,
     "rdap_url": None,
+    "asn_db": "",
     "check_tor_exits": False,
     "no_html": False,
     "open": False,
@@ -388,6 +390,10 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_group.add_argument("--rdap-url", type=_rdap_url, default=None, metavar="TEMPLATE",
                               help="RDAP URL template containing {ip} "
                                    "(default: https://rdap.org/ip/{ip}); implies --rdap.")
+    enrich_group.add_argument("--asn-db", default="", metavar="PATH",
+                              help="Offline ASN database (GeoLite2 ASN CSV or "
+                                   "'CIDR ASN Organisation' text) that fills "
+                                   "missing ASN/owner values.")
     enrich_group.add_argument("--check-tor-exits", action="store_true",
                               help="Download the Tor exit-node list and flag matches.")
     enrich_group.add_argument("--offline", action="store_true",
@@ -764,6 +770,19 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
     if allowlist.entries:
         logger.info(f"Allowlist: {allowlist.entries} entries ({allowlist.describe()})")
 
+    asn_db = None
+    if args.asn_db:
+        try:
+            asn_db = AsnDatabase.load(_expand(args.asn_db) or args.asn_db)
+        except (OSError, ValueError) as exc:
+            logger.error(f"cannot read ASN database: {exc}")
+            return 2
+        logger.info(
+            f"ASN database: {len(asn_db)} networks ({asn_db.source}"
+            + (f", {asn_db.skipped} invalid line(s) skipped" if asn_db.skipped else "")
+            + ")"
+        )
+
     logger.info(f"Capture: {source if not live else interface}")
 
     detected_networks = []
@@ -898,6 +917,8 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         logger=logger,
     )
     enrich(analysis, enrich_options)
+    if asn_db is not None:
+        analysis.enrichment["asn_db"] = apply_asn_db(analysis, asn_db, logger)
     run_threat_intel(analysis)
     sort_findings(analysis)
 

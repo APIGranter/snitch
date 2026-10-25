@@ -22,6 +22,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--gateway`, `--exclude-ip`, `--min-packets`.
 - HTTP methods and User-Agent strings from cleartext requests, shown in the
   destination details modal and `data/analysis.json`.
+- Optional offline ASN database (`--asn-db PATH`): reads a MaxMind GeoLite2
+  ASN CSV or `CIDR ASN Organisation` lines and fills missing ASN/owner values
+  without overriding online results. Works with `--offline`.
 - Configurable RDAP endpoint (`--rdap-url TEMPLATE`, must contain `{ip}`);
   cached records from a different provider are ignored, and the About page
   names the provider used.
@@ -68,7 +71,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 141 unit/integration tests (no tshark or network required).
+- 147 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

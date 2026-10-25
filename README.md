@@ -233,6 +233,7 @@ dashboard, and `--title` / `--handle` to brand the report.
 | `--no-rdns` | Skip reverse-DNS lookups. |
 | `--rdap` | Look up network ownership via RDAP. |
 | `--rdap-url TEMPLATE` | Use a custom RDAP endpoint (e.g. `https://rdap.arin.net/registry/ip/{ip}`); must contain `{ip}` and implies `--rdap`. Cached records from another provider are ignored. |
+| `--asn-db PATH` | Fill missing ASN/owner values from a local database: a MaxMind GeoLite2 ASN CSV, or a text/CSV file of `CIDR ASN Organisation` lines (`#` comments allowed). Works offline and never overrides online results. |
 | `--no-vt` | Skip VirusTotal (cached results are still used). |
 | `--check-tor-exits` | Download the Tor exit list and flag matching IPs. |
 | `--offline` | No network requests at all; use cache only. |
@@ -314,7 +315,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 141 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 147 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
@@ -327,6 +328,7 @@ snitchlib/
   capture.py              tshark discovery, live capture, filters
   extract.py              single streaming pass, synthetic rows, aggregation
   allowlist.py            parser/matcher for finding suppression
+  asndb.py                optional offline ASN database (GeoLite2/text)
   classify.py             domain categories and base-domain logic
   analyze.py              beaconing/exfil/DNS/port-scan/Tor/cleartext heuristics
   enrich.py               geo, rDNS, RDAP, VirusTotal, Tor exits, cache
