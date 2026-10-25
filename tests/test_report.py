@@ -183,6 +183,8 @@ class ReportTests(unittest.TestCase):
         self.assertIn("MITRE ATT", html)
         self.assertIn("T1046 Network Service Discovery", html)
         self.assertIn("Investigate the endpoint.", html)
+        self.assertIn("data-open-ip", html)
+        self.assertIn("Related flows", html)
         # The bundled GeoJSON must be embedded, not fetched.
         self.assertIn('"type":"FeatureCollection"', html)
 

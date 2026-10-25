@@ -210,7 +210,8 @@ dashboard, and `--title` / `--handle` to brand the report.
   flows, DNS, findings
 - Clients tab with device names learned from DHCP, NetBIOS and mDNS when present
 - Findings panel with severity, confidence, evidence, ATT&CK references and
-  remediation guidance
+  remediation guidance; finding IPs/domains and related flows are clickable
+  for fast pivoting
 - About page with capture metadata and the exact filter used
 - Strict Content-Security-Policy; **no network requests** at runtime
 

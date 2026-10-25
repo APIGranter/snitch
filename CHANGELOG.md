@@ -42,7 +42,8 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Local heuristics: beaconing, exfiltration, DNS anomalies, port scans,
   Tor-like traffic, cleartext protocols and retransmissions, with severity,
   confidence, score, evidence, MITRE ATT&CK references and remediation
-  guidance (`findings.csv`, `summary.txt`, dashboard modal).
+  guidance (`findings.csv`, `summary.txt`, dashboard modal); the finding
+  modal pivots to related destinations, domains and flows.
 - New dashboard: themes, map zoom/pan, timeline, charts, searchable/sortable/
   paginated tables (including a per-client view), findings and details modals,
   About page, CSV/JSON exports and a strict CSP. All dynamic values are escaped.
