@@ -576,6 +576,15 @@ const fmtBytes = (n) => {
   while (Math.abs(n) >= 1024 && i < units.length - 1) { n /= 1024; i++; }
   return (i ? n.toFixed(1) : String(Math.round(n))) + " " + units[i];
 };
+function setTotal(selector, shown, total, suffix){
+  const el = $(selector);
+  if (!el) return;
+  const limited = Number(total || 0) > Number(shown || 0);
+  el.textContent = fmtNum(shown) + (limited ? " of " + fmtNum(total) : "") + " " + suffix;
+  el.title = limited
+    ? "The dashboard shows the top " + fmtNum(shown) + " rows. Full data is in the CSV/JSON exports."
+    : "";
+}
 const pad = (n) => String(n).padStart(2, "0");
 const fmtTime = (epoch, full) => {
   if (!epoch) return "–";
@@ -1150,7 +1159,7 @@ function drawDestinations(){
   }).join("");
   if (!rows.length) tbody.innerHTML = '<tr><td colspan="7" class="empty">No destinations match this filter.</td></tr>';
   $$("#dest-table tbody tr.click").forEach(tr => tr.addEventListener("click", () => openDestination(Number(tr.dataset.index))));
-  $("#dest-total").textContent = fmtNum(tables.destinations.data.length) + " total";
+  setTotal("#dest-total", tables.destinations.data.length, REPORT.destinations_total, "destinations");
   pager("destinations");
 }
 function drawClients(){
@@ -1172,7 +1181,7 @@ function drawClients(){
     </tr>`;
   }).join("");
   if (!rows.length) tbody.innerHTML = '<tr><td colspan="8" class="empty">No clients match this filter.</td></tr>';
-  $("#client-total").textContent = fmtNum(tables.clients.data.length) + " total";
+  setTotal("#client-total", tables.clients.data.length, REPORT.clients_total, "clients");
   pager("clients");
 }
 function drawDomains(){
@@ -1194,7 +1203,7 @@ function drawDomains(){
   }).join("");
   if (!rows.length) tbody.innerHTML = '<tr><td colspan="7" class="empty">No domains match this filter.</td></tr>';
   $$("#dom-table tbody tr.click").forEach(tr => tr.addEventListener("click", () => openDomain(Number(tr.dataset.index))));
-  $("#dom-total").textContent = fmtNum(tables.domains.data.length) + " total";
+  setTotal("#dom-total", tables.domains.data.length, REPORT.domains_total, "domains");
   pager("domains");
 }
 function drawDns(){
@@ -1215,7 +1224,7 @@ function drawDns(){
     </tr>`;
   }).join("");
   if (!rows.length) tbody.innerHTML = '<tr><td colspan="6" class="empty">No DNS rows match this filter.</td></tr>';
-  $("#dns-total").textContent = fmtNum(tables.dns.data.length) + " name/type pairs";
+  setTotal("#dns-total", tables.dns.data.length, REPORT.dns_total, "name/type pairs");
   pager("dns");
 }
 function drawFlows(){
@@ -1237,7 +1246,7 @@ function drawFlows(){
   }).join("");
   if (!rows.length) tbody.innerHTML = '<tr><td colspan="8" class="empty">No flows match this filter.</td></tr>';
   $$("#flow-table tbody tr.click").forEach(tr => tr.addEventListener("click", () => openFlow(Number(tr.dataset.index))));
-  $("#flow-total").textContent = fmtNum(tables.flows.data.length) + (REPORT.flows_total > REPORT.flows.length ? " of " + fmtNum(REPORT.flows_total) : "") + " flows";
+  setTotal("#flow-total", tables.flows.data.length, REPORT.flows_total, "flows");
   pager("flows");
 }
 function initTables(){
@@ -1499,7 +1508,12 @@ function renderAbout(){
     ["Tor exits", enr.tor_exits ? ((enr.tor_exits.matched||0) + " matched") : "disabled"],
     ["Elapsed", enr.elapsed_seconds !== undefined ? enr.elapsed_seconds + "s" : "–"],
     ["Findings limit", "dashboard shows up to 500"],
-    ["DNS / flow rows", (REPORT.dns_total||0) + " DNS pairs / " + (REPORT.flows_total||0) + " flows captured"],
+    ["Captured rows", (REPORT.destinations_total||0) + " destinations / " + (REPORT.domains_total||0) + " domains / " + (REPORT.dns_total||0) + " DNS pairs / " + (REPORT.flows_total||0) + " flows"],
+    ["Dashboard row limits", (() => {
+      const l = m.limits || {};
+      return "top " + fmtNum(l.destination_rows||0) + " destinations, " + fmtNum(l.domain_rows||0) +
+        " domains, " + fmtNum(l.dns_rows||0) + " DNS pairs, " + fmtNum(l.flow_rows||0) + " flows (full data in CSV/JSON)";
+    })()],
   ];
   const h = m.heuristics || {};
   if (Object.keys(h).length) {

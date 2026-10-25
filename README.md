@@ -212,6 +212,9 @@ dashboard, and `--title` / `--handle` to brand the report.
 - Findings panel with severity, confidence, evidence, ATT&CK references and
   remediation guidance; finding IPs/domains and related flows are clickable
   for fast pivoting
+- Large captures stay responsive: the dashboard embeds the top 5,000
+  destinations, domains, DNS pairs and flows, always keeping rows linked from
+  findings. Full data remains in `data/analysis.json` and the CSV exports.
 - About page with capture metadata and the exact filter used
 - Strict Content-Security-Policy; **no network requests** at runtime
 
@@ -305,7 +308,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 126 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 127 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
@@ -346,7 +349,7 @@ the backlog.
 | Domains missing for HTTPS/QUIC | ECH, encrypted DNS and some QUIC flows hide names; classification falls back to IP/ASN. |
 | VirusTotal finding looks stale | Cached results are reused even with `--no-vt`; pass `--refresh` or `--no-cache`. |
 | Rate-limit/timeout warnings | Free services throttle. Retry later, lower `--workers`, or use `--offline` with a warm cache. |
-| Dashboard is huge | Full rows are embedded in the HTML (capped at 5k DNS/flow rows). Use the CSV/JSON exports for large captures. |
+| Dashboard is huge | The HTML embeds the top 5,000 destinations, domains, DNS pairs and flows (finding-linked rows are kept), and the About page shows the limits. Use the CSV/JSON exports for complete data. |
 | Wrong/no geolocation | ipwho.is is rate-limited; failures are cached as unknown. Retry with `--refresh` later. |
 
 ## Privacy: what leaves your machine

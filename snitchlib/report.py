@@ -24,6 +24,8 @@ from .util import (
 
 
 # Dashboard payload limits (full data remains in analysis.json / CSVs).
+MAX_DESTINATION_ROWS = 5000
+MAX_DOMAIN_ROWS = 5000
 MAX_DNS_ROWS = 5000
 MAX_FLOW_ROWS = 5000
 MAX_DASHBOARD_FINDINGS = 500
@@ -291,7 +293,12 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
         "analyzed_bytes": analysis.selected_bytes,
         "warnings": list(analysis.warnings),
         "enrichment": dict(analysis.enrichment),
-        "limits": {"dns_rows": MAX_DNS_ROWS, "flow_rows": MAX_FLOW_ROWS},
+        "limits": {
+            "destination_rows": MAX_DESTINATION_ROWS,
+            "domain_rows": MAX_DOMAIN_ROWS,
+            "dns_rows": MAX_DNS_ROWS,
+            "flow_rows": MAX_FLOW_ROWS,
+        },
     })
 
     summary = {
@@ -323,8 +330,11 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
         "meta": capture,
         "summary": summary,
         "destinations": destinations,
+        "destinations_total": len(destinations),
         "domains": domain_rows,
+        "domains_total": len(domain_rows),
         "clients": client_rows,
+        "clients_total": len(client_rows),
         "flows": flow_rows[:MAX_FLOW_ROWS],
         "flows_total": len(flow_rows),
         "dns": dns_rows[:MAX_DNS_ROWS],
@@ -599,6 +609,47 @@ def _write_text_atomic(path: str, text: str) -> None:
                 pass
 
 
+def dashboard_payload(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Trim the report to the dashboard's row caps.
+
+    ``data/analysis.json`` and the CSV exports keep the full report.  The
+    dashboard only receives the top rows (already sorted by traffic/hits), plus
+    any destination/domain referenced by a finding so pivoting from findings
+    keeps working on small but important traffic.
+    """
+    destinations = list(report.get("destinations") or [])
+    domains = list(report.get("domains") or [])
+
+    wanted_ips = set()
+    wanted_domains = set()
+    for finding in list(report.get("findings") or []) + list(report.get("suppressed") or []):
+        wanted_ips.update(finding.get("ips") or [])
+        wanted_domains.update(finding.get("domains") or [])
+
+    dest_view = destinations[:MAX_DESTINATION_ROWS]
+    if wanted_ips and len(destinations) > len(dest_view):
+        present = {dest.get("ip") for dest in dest_view}
+        by_ip = {dest.get("ip"): dest for dest in destinations}
+        for ip in wanted_ips:
+            if ip not in present and ip in by_ip:
+                dest_view.append(by_ip[ip])
+                present.add(ip)
+
+    domain_view = domains[:MAX_DOMAIN_ROWS]
+    if wanted_domains and len(domains) > len(domain_view):
+        present = {row.get("domain") for row in domain_view}
+        by_domain = {row.get("domain"): row for row in domains}
+        for name in wanted_domains:
+            if name not in present and name in by_domain:
+                domain_view.append(by_domain[name])
+                present.add(name)
+
+    payload = dict(report)
+    payload["destinations"] = dest_view
+    payload["domains"] = domain_view
+    return payload
+
+
 def build_dashboard(report: Dict[str, Any], out_html: str,
                     logger: Optional[Logger] = None) -> str:
     """Render the self-contained dashboard from the report and template."""
@@ -621,7 +672,7 @@ def build_dashboard(report: Dict[str, Any], out_html: str,
         geojson = '{"type":"FeatureCollection","features":[]}'
 
     html = template
-    html = html.replace("/*__REPORT__*/", safe_json_dumps(report))
+    html = html.replace("/*__REPORT__*/", safe_json_dumps(dashboard_payload(report)))
     html = html.replace("/*__GEO__*/", geojson)
     _write_text_atomic(out_html, html)
     logger.info(f"Dashboard saved: {out_html}")

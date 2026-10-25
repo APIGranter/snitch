@@ -99,6 +99,50 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["flows"][0]["service"], "HTTPS")
         self.assertEqual(report["clients"][0]["hostnames"], {"test-laptop": 3})
 
+    def test_dashboard_payload_caps_but_keeps_finding_rows(self):
+        analysis = sample_analysis()
+        popular = Destination(
+            ip="198.51.100.10", packets_out=500, packets_in=500,
+            bytes_out=500000, bytes_in=500000,
+            first_seen=1700000000.0, last_seen=1700000060.0,
+        )
+        analysis.destinations[popular.ip] = popular
+        analysis.domains["popular.example.net"] = DomainStat(
+            domain="popular.example.net", category="Unclassified",
+            sources=Counter({"sni": 900}), clients=Counter({"10.0.0.2": 900}),
+            first_seen=1700000000.0, last_seen=1700000060.0,
+        )
+        report = build_report(analysis)
+        self.assertEqual(report["destinations_total"], 2)
+        self.assertEqual(report["domains_total"], 2)
+
+        with mock.patch.object(report_module, "MAX_DESTINATION_ROWS", 1), \
+                mock.patch.object(report_module, "MAX_DOMAIN_ROWS", 1):
+            payload = report_module.dashboard_payload(report)
+            # The top row is kept first; the finding's lower-volume row is
+            # appended so pivoting from a finding still works.
+            self.assertEqual(
+                [row["ip"] for row in payload["destinations"]],
+                ["198.51.100.10", "93.184.216.34"],
+            )
+            self.assertEqual(
+                [row["domain"] for row in payload["domains"]],
+                ["popular.example.net", "www.example.com"],
+            )
+            # The full report is untouched for JSON/CSV exports.
+            self.assertEqual(len(report["destinations"]), 2)
+            self.assertEqual(len(report["domains"]), 2)
+
+            with tempfile.TemporaryDirectory() as folder:
+                out = os.path.join(folder, "dashboard.html")
+                build_dashboard(report, out, QUIET)
+                with open(out, encoding="utf-8") as handle:
+                    html = handle.read()
+        self.assertIn("198.51.100.10", html)
+        self.assertIn("93.184.216.34", html)
+        self.assertIn('"destinations_total": 2', html)
+        self.assertIn("Dashboard row limits", html)
+
     def test_legacy_records(self):
         report = build_report(sample_analysis())
         records = legacy_records(report)

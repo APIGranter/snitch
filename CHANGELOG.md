@@ -58,7 +58,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 126 unit/integration tests (no tshark or network required).
+- 127 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed
@@ -69,6 +69,10 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   for free-tier rate limits.
 - Generated JSON is embedded safely in the dashboard (`<`, `>`, `&` escaped).
 - Cache, result and packaging artifacts are covered by `.gitignore`.
+- The dashboard embeds only the top 5,000 destinations, domains, DNS pairs and
+  flows (rows referenced by findings are always kept) so large captures stay
+  fast to open. `data/analysis.json` and the CSV exports keep the full data;
+  the About page shows each limit and the total row counts.
 
 ### Fixed
 
