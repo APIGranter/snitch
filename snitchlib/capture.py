@@ -9,6 +9,7 @@ one pass per extra field); on large captures that is the dominant cost.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -166,6 +167,86 @@ def tshark_version(tshark: str) -> str:
         return "unknown"
     lines = (proc.stdout or proc.stderr or "").strip().splitlines()
     return lines[0].strip() if lines else "unknown"
+
+
+#: capinfos labels we keep, mapped to stable report keys.
+_CAPINFOS_KEYS = {
+    "file type": "file_type",
+    "file encapsulation": "encapsulation",
+    "number of packets": "packets",
+    "file size": "file_size",
+    "capture duration": "duration",
+    "earliest packet time": "first_packet",
+    "latest packet time": "last_packet",
+    "strict time order": "time_order",
+    "capture hardware": "hardware",
+    "capture oper-sys": "os",
+    "capture application": "application",
+    "number of interfaces in file": "interface_count",
+    "packet size limit": "snapshot_length",
+}
+
+
+def parse_capinfos(output: str) -> Dict[str, object]:
+    """Parse ``capinfos -M`` output into a small typed dictionary."""
+    info: Dict[str, object] = {}
+    interfaces: List[str] = []
+    for line in str(output or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Interface blocks are indented key = value pairs.
+        if line[:1].isspace() and "=" in stripped:
+            key, _, value = stripped.partition("=")
+            if key.strip().lower() == "name" and value.strip():
+                interfaces.append(value.strip())
+            continue
+        key, sep, value = stripped.partition(":")
+        if not sep:
+            continue
+        field = _CAPINFOS_KEYS.get(key.strip().lower())
+        if not field:
+            continue
+        text = value.strip()
+        if field in ("packets", "file_size", "interface_count"):
+            match = re.match(r"(\d+)", text)
+            if match:
+                info[field] = int(match.group(1))
+        elif field == "duration":
+            match = re.match(r"([0-9.]+)", text)
+            if match:
+                info[field] = float(match.group(1))
+        elif text:
+            info[field] = text
+    if interfaces:
+        info["interfaces"] = interfaces
+    return info
+
+
+def capinfos_binary(tshark: Optional[str] = None) -> Optional[str]:
+    """Locate ``capinfos`` next to tshark, then on ``PATH``."""
+    if tshark:
+        folder = os.path.dirname(os.path.abspath(tshark))
+        name, ext = os.path.splitext(os.path.basename(tshark))
+        # Windows ships tshark.exe/capinfos.exe; match the extension.
+        candidate = os.path.join(folder, "capinfos" + (ext if name else ""))
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return shutil.which("capinfos")
+
+
+def capture_info(path: str, tshark: Optional[str] = None) -> Dict[str, object]:
+    """Best-effort capture metadata from capinfos (empty dict on failure)."""
+    binary = capinfos_binary(tshark)
+    if not binary:
+        return {}
+    try:
+        proc = _run([binary, "-M", path], timeout=90)
+    except TsharkError:
+        return {}
+    if proc.returncode != 0:
+        return {}
+    return parse_capinfos(proc.stdout or "")
 
 
 def list_interfaces(tshark: str) -> List[Dict[str, str]]:

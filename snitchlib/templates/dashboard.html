@@ -1534,6 +1534,21 @@ function renderAbout(){
     ["Duration", fmtDur(m.duration)],
     ["Packets", fmtNum(m.packets) + " total / " + fmtNum(m.analyzed_packets) + " analyzed"],
     ["Traffic", fmtBytes(m.bytes) + " total / " + fmtBytes(m.analyzed_bytes) + " analyzed"],
+    ...(() => {
+      const ci = m.capinfos || {};
+      const rows = [];
+      if (ci.application) rows.push(["Captured with", ci.application]);
+      if (ci.os) rows.push(["Capture OS", ci.os]);
+      if (ci.hardware) rows.push(["Capture hardware", ci.hardware]);
+      if (ci.encapsulation || ci.file_type) {
+        rows.push(["Encapsulation", [ci.file_type, ci.encapsulation].filter(Boolean).join(" · ")]);
+      }
+      if (ci.time_order) {
+        rows.push(["Time order", /^(true|yes)$/i.test(ci.time_order) ? "strict" : "not strict (packets out of order)"]);
+      }
+      if ((ci.interfaces || []).length) rows.push(["Interfaces", ci.interfaces.join(", ")]);
+      return rows;
+    })(),
     ["Mode", m.mode || "–"], ["Target", m.target || "–"], ["tshark", m.tshark_version || m.tshark || "–"],
     ...(m.auto_clients ? [["Client selection", "auto · every private address"]] :
         (m.detected_networks || []).length ? [["Client selection", "detected · " + m.detected_networks.join(", ")]] :

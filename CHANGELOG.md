@@ -20,6 +20,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Time and filter controls: `--since`, `--until`, `--display-filter`.
 - Client selection: `--auto-clients`, `--detect-local`, `--hotspot-net`,
   `--gateway`, `--exclude-ip`, `--min-packets`.
+- Capture provenance: when `capinfos` is installed, the About page shows the
+  capture application, OS, hardware, encapsulation, interface names and strict
+  time-order flag recorded in the file (`meta.capinfos`).
 - HTTP methods and User-Agent strings from cleartext requests, shown in the
   destination details modal and `data/analysis.json`.
 - Optional offline ASN database (`--asn-db PATH`): reads a MaxMind GeoLite2
@@ -71,7 +74,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 148 unit/integration tests (no tshark or network required).
+- 153 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

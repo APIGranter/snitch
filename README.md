@@ -220,7 +220,9 @@ dashboard, and `--title` / `--handle` to brand the report.
 - Large captures stay responsive: the dashboard embeds the top 5,000
   destinations, domains, DNS pairs and flows, always keeping rows linked from
   findings. Full data remains in `data/analysis.json` and the CSV exports.
-- About page with capture metadata and the exact filter used
+- About page with capture metadata and the exact filter used, including the
+  capture application, OS, hardware, encapsulation, interfaces and time order
+  reported by `capinfos` when it is installed
 - Strict Content-Security-Policy; **no network requests** at runtime
 
 ---
@@ -315,7 +317,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 148 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 153 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
@@ -325,7 +327,7 @@ Layout:
 snitch.py                 thin CLI wrapper (backwards compatible)
 snitchlib/
   cli.py                  argument parsing, config, pipeline, exit codes
-  capture.py              tshark discovery, live capture, filters
+  capture.py              tshark discovery, live capture, filters, capinfos
   extract.py              single streaming pass, synthetic rows, aggregation
   allowlist.py            parser/matcher for finding suppression
   asndb.py                optional offline ASN database (GeoLite2/text)

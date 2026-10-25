@@ -26,9 +26,9 @@ from .analyze import (
 from .allowlist import Allowlist, AllowlistError
 from .asndb import AsnDatabase, apply_asn_db
 from .capture import (
-    TsharkError, build_display_filter, default_live_path, find_tshark,
-    iter_packets, list_interfaces, live_capture, platform_note, resolve_interface,
-    tshark_version, validate_capture,
+    TsharkError, build_display_filter, capture_info, default_live_path,
+    find_tshark, iter_packets, list_interfaces, live_capture, platform_note,
+    resolve_interface, tshark_version, validate_capture,
 )
 from .classify import normalize_target
 from .enrich import EnrichOptions, enrich
@@ -592,6 +592,12 @@ def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
             meta["size_bytes"] = os.path.getsize(source)
         except OSError as exc:
             meta["hash_error"] = str(exc)
+        # capinfos adds what the capture's authoring stack recorded (application,
+        # OS, hardware, encapsulation, interface names).  It is optional: if the
+        # tool is missing or fails, the dashboard simply omits those rows.
+        info = capture_info(source, tshark)
+        if info:
+            meta["capinfos"] = info
     return meta
 
 
