@@ -38,6 +38,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Server hostnames announced in cleartext FTP/SMTP/IMAP/POP3 greeting banners
   are linked to the destination IP and domain table (tagged IMAP responses;
   current tshark does not dissect untagged IMAP greetings).
+- About tab threshold tuner: edit the profile or individual heuristic values,
+  preview the equivalent CLI command, copy it and download a matching
+  `snitch.json`.
 - Finding allowlist (`--allowlist PATH`): suppress findings for known-good
   IPs, CIDRs and domain suffixes (boundary-aware), with a suppression warning
   and a "Suppressed by allowlist" section in the dashboard. Entries can be

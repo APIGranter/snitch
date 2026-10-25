@@ -201,6 +201,10 @@
   .kv dt{color:var(--muted)} .kv dd{margin:0;overflow-wrap:anywhere}
   .modal-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
   .modal-actions .btn{flex:1;justify-content:center;min-width:140px}
+  .tuner{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0}
+  .tuner label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+  .tuner input,.tuner select{font:inherit;font-size:12px;color:var(--txt);background:var(--panel2);
+    border:1px solid var(--line);border-radius:7px;padding:6px 8px;min-width:0}
   pre.evidence{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:12px;
                font-size:11px;overflow:auto;max-height:280px;white-space:pre-wrap;overflow-wrap:anywhere}
   .section-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:16px 0 7px}
@@ -1534,6 +1538,92 @@ function initModal(){
 }
 
 // ---------------------------------------------------------------- about
+function tuneRound(value, digits = 2){
+  const number = Number(value);
+  return Number.isFinite(number) ? Number(number.toFixed(digits)) : 0;
+}
+function heuristicTunerValues(){
+  const panel = $("#heuristic-tuner");
+  if (!panel) return null;
+  const value = (key) => {
+    const input = $(`[data-tune="${key}"]`, panel);
+    return input ? input.value : "";
+  };
+  return {
+    profile: value("profile") || "balanced",
+    beacon_min_events: Math.max(1, Math.round(Number(value("beacon_min_events")) || 1)),
+    beacon_max_cv: Math.max(0, tuneRound(value("beacon_max_cv"))),
+    exfil_min_bytes: Math.max(1, Math.round((Number(value("exfil_mb")) || 0) * 1048576)),
+    dns_min_unique: Math.max(1, Math.round(Number(value("dns_min_unique")) || 1)),
+    scan_min_ports: Math.max(1, Math.round(Number(value("scan_min_ports")) || 1)),
+    tor_max_destinations: Math.max(1, Math.round(Number(value("tor_max_destinations")) || 1)),
+  };
+}
+function shellQuote(value){
+  const text = String(value);
+  return /[\s"]/.test(text) ? '"' + text.replace(/"/g, '\\"') + '"' : text;
+}
+function tunerCommand(values){
+  const file = (REPORT.meta || {}).file || "capture.pcapng";
+  return ["python3", "snitch.py", shellQuote(file), "--profile", values.profile,
+    "--beacon-min-events", values.beacon_min_events,
+    "--beacon-max-cv", values.beacon_max_cv,
+    "--exfil-min-bytes", values.exfil_min_bytes,
+    "--dns-min-unique", values.dns_min_unique,
+    "--scan-min-ports", values.scan_min_ports,
+    "--tor-max-destinations", values.tor_max_destinations,
+  ].join(" ");
+}
+function bindHeuristicTuner(){
+  const panel = $("#heuristic-tuner");
+  if (!panel) return;
+  const preview = $("#tune-preview");
+  const profiles = (REPORT.meta || {}).heuristic_profiles || {};
+  const update = () => {
+    if (preview) preview.textContent = tunerCommand(heuristicTunerValues());
+  };
+  const setProfile = () => {
+    const chosen = $('[data-tune="profile"]', panel).value;
+    const values = profiles[chosen];
+    if (!values) { update(); return; }
+    const set = (key, value) => {
+      const input = $(`[data-tune="${key}"]`, panel);
+      if (input) input.value = value;
+    };
+    set("beacon_min_events", values.beacon_min_events);
+    set("beacon_max_cv", tuneRound(values.beacon_max_cv));
+    set("exfil_mb", tuneRound(Number(values.exfil_min_bytes || 0) / 1048576));
+    set("dns_min_unique", values.dns_min_unique);
+    set("scan_min_ports", values.scan_min_ports);
+    set("tor_max_destinations", values.tor_max_destinations);
+    update();
+  };
+  $$("input[data-tune]", panel).forEach(input => input.addEventListener("input", update));
+  const profile = $('[data-tune="profile"]', panel);
+  if (profile) profile.addEventListener("change", setProfile);
+  const copy = $("#tune-copy");
+  if (copy) copy.addEventListener("click", async () => {
+    const text = tunerCommand(heuristicTunerValues());
+    try {
+      await navigator.clipboard.writeText(text);
+      copy.textContent = "Copied ✓";
+    } catch (_) {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand("copy"); copy.textContent = "Copied ✓"; }
+      catch (__) { copy.textContent = "Select the command below"; }
+      area.remove();
+    }
+    setTimeout(() => { copy.textContent = "Copy CLI command"; }, 1800);
+  });
+  const json = $("#tune-json");
+  if (json) json.addEventListener("click", () =>
+    download("snitch.json", JSON.stringify(heuristicTunerValues(), null, 2) + "\n", "application/json"));
+  update();
+}
+
 function renderAbout(){
   const m = REPORT.meta || {}, s = REPORT.summary || {};
   const captureRows = [
@@ -1595,8 +1685,34 @@ function renderAbout(){
       " upload, " + h.dns_min_unique + " DNS names, " + h.scan_min_ports + " ports, " +
       h.tor_max_destinations + " Tor dest."]);
   }
+  const profiles = m.heuristic_profiles || {};
+  const tunerFields = [
+    ["beacon_min_events", "Beacon events", h.beacon_min_events, "1"],
+    ["beacon_max_cv", "Beacon max CV", h.beacon_max_cv, "0.01"],
+    ["exfil_mb", "Upload threshold (MB)",
+      Number(h.exfil_min_bytes || 0) / 1048576, "0.1"],
+    ["dns_min_unique", "Unique DNS names", h.dns_min_unique, "1"],
+    ["scan_min_ports", "Scan ports", h.scan_min_ports, "1"],
+    ["tor_max_destinations", "Tor destinations", h.tor_max_destinations, "1"],
+  ];
+  const round = (value, digits) => Number(Number(value || 0).toFixed(digits));
   $("#about-config").innerHTML = kvRows(configRows) +
-    `<p class="muted" style="font-size:11px;margin-top:10px">Full data lives in <span class="mono">data/analysis.json</span>, <span class="mono">data/flows.csv</span> and <span class="mono">data/dns.csv</span>.</p>`;
+    `<div class="section-title">Tune heuristics</div>
+     <p class="muted" style="font-size:11px;margin:0">Preview a different profile or thresholds, then re-run SNItch.
+     Values here are explicit, so they override the selected profile.</p>
+     <div class="tuner" id="heuristic-tuner">
+       <label>Profile<select data-tune="profile">${Object.keys(profiles).map(name =>
+         `<option value="${esc(name)}"${name === h.profile ? " selected" : ""}>${esc(name)}</option>`).join("")}</select></label>
+       ${tunerFields.map(([key, label, value, step]) =>
+         `<label>${esc(label)}<input data-tune="${key}" type="number" min="0" step="${step}" value="${round(value, 2)}"></label>`).join("")}
+     </div>
+     <div class="modal-actions">
+       <button class="btn sec" type="button" id="tune-copy">Copy CLI command</button>
+       <button class="btn sec" type="button" id="tune-json">Download snitch.json</button>
+     </div>
+     <pre class="evidence" id="tune-preview" aria-live="polite"></pre>
+     <p class="muted" style="font-size:11px;margin-top:10px">Full data lives in <span class="mono">data/analysis.json</span>, <span class="mono">data/flows.csv</span> and <span class="mono">data/dns.csv</span>.</p>`;
+  bindHeuristicTuner();
 
   $("#about-categories").innerHTML = Object.entries(REPORT.category_descriptions || {}).map(([cat, desc]) =>
     `<div style="margin:0 0 9px"><span class="dotc" style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;background:${categoryColour(cat)}"></span>

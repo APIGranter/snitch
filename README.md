@@ -170,6 +170,10 @@ override individual thresholds on the CLI or in `snitch.json` (underscored
 keys, e.g. `"beacon_min_events": 8`). Explicit values always win over the
 profile.
 
+The dashboard's About tab includes a threshold tuner: change the profile or
+individual values to preview the equivalent CLI command and download a matching
+`snitch.json`. Re-run SNItch to apply it.
+
 | Option | Default (balanced) | Effect |
 |---|---|---|
 | `--profile NAME` | `balanced` | Preset: `quiet`, `balanced` or `aggressive`. |

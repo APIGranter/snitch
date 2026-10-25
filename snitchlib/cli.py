@@ -20,8 +20,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from . import APP_NAME, __version__
 from .analyze import (
-    AnalysisOptions, apply_categories, profile_thresholds, run_heuristics,
-    run_threat_intel, sort_findings,
+    HEURISTIC_PROFILES, AnalysisOptions, apply_categories, profile_thresholds,
+    run_heuristics, run_threat_intel, sort_findings,
 )
 from .allowlist import Allowlist, AllowlistError
 from .asndb import AsnDatabase, apply_asn_db
@@ -585,6 +585,9 @@ def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
         "live_interface": interface,
         "packet_limit": args.packet_limit,
         "heuristics": _heuristic_meta(args),
+        "heuristic_profiles": {
+            name: dict(values) for name, values in HEURISTIC_PROFILES.items()
+        },
     }
     if not live:
         try:

@@ -120,6 +120,9 @@ class ReportTests(unittest.TestCase):
         self.assertIn("User agents", html)
         self.assertIn("TestBrowser/1.0 (Linux)", html)
         self.assertIn("HTTP methods", html)
+        # The About tab ships a client-side threshold tuner.
+        self.assertIn("heuristic-tuner", html)
+        self.assertIn("Copy CLI command", html)
 
     def test_dashboard_payload_caps_but_keeps_finding_rows(self):
         analysis = sample_analysis()
