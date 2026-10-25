@@ -260,6 +260,7 @@
 <nav class="tabs" id="tabs" aria-label="Report sections">
   <button class="tab active" data-tab="overview" type="button">Overview</button>
   <button class="tab" data-tab="destinations" type="button">Destinations</button>
+  <button class="tab" data-tab="clients" type="button">Clients</button>
   <button class="tab" data-tab="domains" type="button">Domains</button>
   <button class="tab" data-tab="dns" type="button">DNS</button>
   <button class="tab" data-tab="flows" type="button">Flows</button>
@@ -359,6 +360,34 @@
         <span id="dest-page-label"></span>
         <button type="button" id="dest-prev">Prev</button>
         <button type="button" id="dest-next">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-section hidden" data-section="clients">
+    <div class="panel">
+      <div class="panel-h"><h2>Clients <span class="badge" id="client-total"></span></h2></div>
+      <div class="toolbar">
+        <input id="client-search" type="search" placeholder="Search client IP, domain, destination…" aria-label="Search clients">
+      </div>
+      <div class="table-wrap">
+        <table id="client-table">
+          <thead><tr>
+            <th data-sort="ip">Client</th>
+            <th data-sort="packets" class="num">Packets</th>
+            <th data-sort="bytes" class="num">Traffic</th>
+            <th data-sort="destinations" class="num">Destinations</th>
+            <th data-sort="domains" class="num">Domains</th>
+            <th>Top domains</th>
+            <th data-sort="last_seen">Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="client-page-label"></span>
+        <button type="button" id="client-prev">Prev</button>
+        <button type="button" id="client-next">Next</button>
       </div>
     </div>
   </section>
@@ -997,6 +1026,7 @@ function fillSuppressedFindings(){
 const PAGE_SIZE = 50;
 const tables = {
   destinations: {data:[], filtered:[], page:0, sort:{key:"bytes", asc:false}, query:"", risk:"", country:""},
+  clients: {data:[], filtered:[], page:0, sort:{key:"bytes", asc:false}, query:""},
   domains: {data:[], filtered:[], page:0, sort:{key:"hits", asc:false}, query:"", category:""},
   dns: {data:[], filtered:[], page:0, sort:{key:"count", asc:false}, query:"", type:""},
   flows: {data:[], filtered:[], page:0, sort:{key:"bytes", asc:false}, query:""},
@@ -1017,7 +1047,7 @@ function sortValues(row, key){
   if (key === "vt") return (row.vt && row.vt.malicious) ?? -1;
   if (key === "sources") return Object.values(row.sources||{}).reduce((a,b)=>a+Number(b||0),0);
   if (key === "ips") return Object.keys(row.ips||{}).length;
-  if (key === "domains") return (row.domainNames||row.domains||[]).length;
+  if (key === "domains") return Array.isArray(row.domains) ? row.domainNames ? row.domainNames.length : row.domains.length : (row.domains || 0);
   if (key === "risk") return {malicious:5,suspicious:4,tor:3,unknown:2,clean:1}[row.risk] || 0;
   const v = row[key];
   return typeof v === "string" ? v.toLowerCase() : (v ?? 0);
@@ -1034,6 +1064,12 @@ function applySortFilter(name){
     if (name === "domains") {
       if (t.category && row.category !== t.category) return false;
       return !q || [row.domain,row.base,row.category,...Object.keys(row.ips||{})].join(" ").toLowerCase().includes(q);
+    }
+    if (name === "clients") {
+      return !q || [row.ip,
+        ...(row.top_domains||[]).map(x => x.domain),
+        ...(row.top_destinations||[]).map(x => x.ip),
+      ].join(" ").toLowerCase().includes(q);
     }
     if (name === "dns") {
       if (t.type && row.qtype !== t.type) return false;
@@ -1056,13 +1092,15 @@ function applySortFilter(name){
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   t.page = Math.min(t.page, pages - 1);
 }
+const TABLE_PREFIX = {destinations:"dest", clients:"client", domains:"dom", dns:"dns", flows:"flow"};
 function pager(name){
   const t = tables[name];
   const pages = Math.max(1, Math.ceil(t.filtered.length / PAGE_SIZE));
-  const label = $(`#${name === "destinations" ? "dest" : name === "domains" ? "dom" : name}-page-label`);
+  const prefix = TABLE_PREFIX[name] || name;
+  const label = $(`#${prefix}-page-label`);
   if (label) label.textContent = `Page ${t.page + 1} / ${pages} · ${fmtNum(t.filtered.length)} rows`;
-  const prev = $(`#${name === "destinations" ? "dest" : name === "domains" ? "dom" : name}-prev`);
-  const next = $(`#${name === "destinations" ? "dest" : name === "domains" ? "dom" : name}-next`);
+  const prev = $(`#${prefix}-prev`);
+  const next = $(`#${prefix}-next`);
   if (prev) prev.disabled = t.page <= 0;
   if (next) next.disabled = t.page >= pages - 1;
 }
@@ -1109,6 +1147,26 @@ function drawDestinations(){
   $$("#dest-table tbody tr.click").forEach(tr => tr.addEventListener("click", () => openDestination(Number(tr.dataset.index))));
   $("#dest-total").textContent = fmtNum(tables.destinations.data.length) + " total";
   pager("destinations");
+}
+function drawClients(){
+  applySortFilter("clients");
+  const rows = pageRows("clients");
+  const tbody = $("#client-table tbody");
+  tbody.innerHTML = rows.map((row) => {
+    const topDomains = (row.top_domains || []).map(x => x.domain);
+    return `<tr>
+      <td class="mono">${esc(row.ip)}</td>
+      <td class="num">${fmtNum(row.packets)}</td>
+      <td class="num">${fmtBytes(row.bytes)}<br><span class="muted">↑${fmtBytes(row.bytes_out)} ↓${fmtBytes(row.bytes_in)}</span></td>
+      <td class="num">${fmtNum(row.destinations)}</td>
+      <td class="num">${fmtNum(row.domains)}</td>
+      <td>${domainsCell(topDomains)}</td>
+      <td class="nowrap">${esc(fmtTime(row.last_seen))}</td>
+    </tr>`;
+  }).join("");
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="7" class="empty">No clients match this filter.</td></tr>';
+  $("#client-total").textContent = fmtNum(tables.clients.data.length) + " total";
+  pager("clients");
 }
 function drawDomains(){
   applySortFilter("domains");
@@ -1177,6 +1235,7 @@ function drawFlows(){
 }
 function initTables(){
   tables.destinations.data = decorateDestinations();
+  tables.clients.data = REPORT.clients || [];
   tables.domains.data = (REPORT.domains || []).map(d => ({...d, ipCount:Object.keys(d.ips||{}).length}));
   tables.dns.data = REPORT.dns || [];
   tables.flows.data = REPORT.flows || [];
@@ -1201,13 +1260,16 @@ function initTables(){
   $("#dns-search").addEventListener("input", e => { tables.dns.query = e.target.value; tables.dns.page = 0; drawDns(); });
   $("#dns-type").addEventListener("change", e => { tables.dns.type = e.target.value; tables.dns.page = 0; drawDns(); });
   $("#flow-search").addEventListener("input", e => { tables.flows.query = e.target.value; tables.flows.page = 0; drawFlows(); });
+  $("#client-search").addEventListener("input", e => { tables.clients.query = e.target.value; tables.clients.page = 0; drawClients(); });
 
   bindHeaderSort("#dest-table", "destinations", drawDestinations);
+  bindHeaderSort("#client-table", "clients", drawClients);
   bindHeaderSort("#dom-table", "domains", drawDomains);
   bindHeaderSort("#dns-table", "dns", drawDns);
   bindHeaderSort("#flow-table", "flows", drawFlows);
 
   bindPager("dest", "destinations", drawDestinations);
+  bindPager("client", "clients", drawClients);
   bindPager("dom", "domains", drawDomains);
   bindPager("dns", "dns", drawDns);
   bindPager("flow", "flows", drawFlows);
@@ -1468,6 +1530,7 @@ function boot(){
   initFindings();
   initTables();
   drawDestinations();
+  drawClients();
   drawDomains();
   drawDns();
   drawFlows();

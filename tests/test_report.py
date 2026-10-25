@@ -175,6 +175,7 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn("<script>alert(1)</script>", html)
         self.assertIn("\\u003cscript\\u003ealert(1)\\u003c/script\\u003e", html)
         self.assertIn('id="map"', html)
+        self.assertIn('id="client-table"', html)
         self.assertIn("93.184.216.34", html)
         self.assertIn("MITRE ATT", html)
         self.assertIn("T1046 Network Service Discovery", html)

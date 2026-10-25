@@ -202,9 +202,10 @@ dashboard, and `--title` / `--handle` to brand the report.
 
 - World map with destination markers (zoom/pan, click for details)
 - Summary cards, traffic timeline and protocol/country/category charts
-- Searchable, sortable, paginated tables: destinations, domains, flows, DNS,
-  findings
-- Findings panel with severity, confidence and evidence
+- Searchable, sortable, paginated tables: destinations, clients, domains,
+  flows, DNS, findings
+- Findings panel with severity, confidence, evidence, ATT&CK references and
+  remediation guidance
 - About page with capture metadata and the exact filter used
 - Strict Content-Security-Policy; **no network requests** at runtime
 

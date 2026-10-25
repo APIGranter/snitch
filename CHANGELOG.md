@@ -42,8 +42,8 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   confidence, score, evidence, MITRE ATT&CK references and remediation
   guidance (`findings.csv`, `summary.txt`, dashboard modal).
 - New dashboard: themes, map zoom/pan, timeline, charts, searchable/sortable/
-  paginated tables, findings and details modals, About page, CSV/JSON exports
-  and a strict CSP. All dynamic values are escaped.
+  paginated tables (including a per-client view), findings and details modals,
+  About page, CSV/JSON exports and a strict CSP. All dynamic values are escaped.
 - New outputs: `data/analysis.json`, `domains.csv`, `flows.csv`, `dns.csv`,
   `findings.csv`, `summary.txt` (1.x files are still written).
 - `--fail-on` severity gate (exit code 3), `--open`, `--title`, `--no-html`,
