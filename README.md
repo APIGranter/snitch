@@ -327,6 +327,35 @@ the backlog.
 
 ---
 
+## Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| `tshark not found` | Install Wireshark/tshark, add it to `PATH`, or pass `--tshark /path/to/tshark`. |
+| Live capture fails or shows no packets | Capture usually needs root/Administrator. On Windows install Npcap and open an elevated shell. |
+| No clients found | The default filter is `192.168.137.0/24`; pass `--auto-clients`, `--src-ip`, or `--hotspot-net`. |
+| Empty or very small report | Check `--since`/`--until`, `--display-filter`, `--min-packets`, and that the capture contains the client subnet. |
+| Domains missing for HTTPS/QUIC | ECH, encrypted DNS and some QUIC flows hide names; classification falls back to IP/ASN. |
+| VirusTotal finding looks stale | Cached results are reused even with `--no-vt`; pass `--refresh` or `--no-cache`. |
+| Rate-limit/timeout warnings | Free services throttle. Retry later, lower `--workers`, or use `--offline` with a warm cache. |
+| Dashboard is huge | Full rows are embedded in the HTML (capped at 5k DNS/flow rows). Use the CSV/JSON exports for large captures. |
+| Wrong/no geolocation | ipwho.is is rate-limited; failures are cached as unknown. Retry with `--refresh` later. |
+
+## Privacy: what leaves your machine
+
+The capture file itself is never uploaded. Only enrichment metadata leaves the
+machine, and each lookup can be disabled:
+
+| Feature | Data sent | Destination | Disable with |
+|---|---|---|---|
+| Geolocation (on by default) | Destination IP | `ipwho.is`, fallback `ipapi.co` | `--no-geo` or `--offline` |
+| Reverse DNS (on by default) | Destination IP | Your configured system resolver | `--no-rdns` or `--offline` |
+| RDAP (off by default) | Destination IP | `rdap.org` | omit `--rdap`, or `--offline` |
+| VirusTotal (off without a key) | IP/domain | `virustotal.com` | `--no-vt` or `--offline` |
+| Tor exit list (off by default) | No capture data | `check.torproject.org` | omit `--check-tor-exits`, or `--offline` |
+
+---
+
 ## Security and privacy
 
 - The capture copy stays in the results folder; delete it if it is sensitive.
