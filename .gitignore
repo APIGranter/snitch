@@ -3,6 +3,8 @@
 vt_key.txt
 # Local config may contain a key; use snitch.example.json as the template
 snitch.json
+# Local allowlists can contain internal hostnames
+allowlist.txt
 
 # --- generated analysis results ---------------------------------------------
 # Per-analysis result folders (name_YYYY-MM-DD_HHMMSS/)
