@@ -179,6 +179,7 @@ class Analysis:
     timeline: Dict[int, List[int]] = field(default_factory=dict)  # second -> [o_p, i_p, o_b, i_b]
     stream_events: List[Tuple[float, str, str, str, int]] = field(default_factory=list)
     findings: List[Finding] = field(default_factory=list)
+    suppressed_findings: List[Finding] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     enrichment: Dict[str, Any] = field(default_factory=dict)
     first_seen: float = 0.0

@@ -189,3 +189,11 @@ class Allowlist:
             return list(findings), 0
         kept = [finding for finding in findings if not self.matches(finding)]
         return kept, len(findings) - len(kept)
+
+    def partition(self, findings: Sequence[Finding]) -> Tuple[List[Finding], List[Finding]]:
+        """Return ``(kept, suppressed)`` so callers can report suppressions."""
+        if not self.entries:
+            return list(findings), []
+        kept = [finding for finding in findings if not self.matches(finding)]
+        suppressed = [finding for finding in findings if self.matches(finding)]
+        return kept, suppressed

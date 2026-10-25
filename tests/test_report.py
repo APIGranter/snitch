@@ -143,6 +143,23 @@ class ReportTests(unittest.TestCase):
         self.assertIn("T1046 Network Service Discovery", text)
         self.assertIn("Investigate the endpoint.", text)
 
+    def test_suppressed_findings_are_serialized_and_rendered(self):
+        analysis = sample_analysis()
+        analysis.suppressed_findings.append(Finding(
+            id="beaconing", severity="low", title="Suppressed beacon",
+            detail="Allowlisted telemetry.", ips=["93.184.216.34"],
+        ))
+        report = build_report(analysis)
+        self.assertEqual(report["summary"]["suppressed_findings"], 1)
+        self.assertEqual(report["suppressed"][0]["id"], "beaconing")
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "dashboard.html")
+            build_dashboard(report, out, QUIET)
+            with open(out, encoding="utf-8") as handle:
+                html = handle.read()
+        self.assertIn("Suppressed beacon", html)
+        self.assertIn("Suppressed by allowlist", html)
+
     def test_dashboard_escapes_dynamic_values(self):
         analysis = sample_analysis()
         analysis.domains["<script>alert(1)</script>.example.com"] = DomainStat(

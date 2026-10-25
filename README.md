@@ -141,9 +141,9 @@ example.com          # also matches cdn.example.com, not notexample.com
 
 A finding is suppressed when one of its domains matches, or when **every** IP
 it references matches. Matching is boundary-aware. Suppressed findings are
-counted in a warning shown on the dashboard and in `summary.txt`; raw
-destinations/domains are still reported normally. Invalid entries fail fast
-with exit code 2.
+excluded from totals but listed in the dashboard's Findings tab, `summary.txt`
+and `data/analysis.json`; raw destinations/domains are still reported
+normally. Invalid entries fail fast with exit code 2.
 
 ### Tune heuristic thresholds
 
@@ -295,7 +295,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 107 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 108 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

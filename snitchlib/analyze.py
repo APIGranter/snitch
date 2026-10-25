@@ -178,10 +178,11 @@ def run_heuristics(analysis: Analysis, options: Optional[AnalysisOptions] = None
     findings.extend(_detect_retransmissions(analysis))
     findings = apply_playbooks(findings)
     if options.allowlist and options.allowlist.entries:
-        findings, suppressed = options.allowlist.filter(findings)
+        findings, suppressed = options.allowlist.partition(findings)
         if suppressed:
+            analysis.suppressed_findings.extend(suppressed)
             analysis.warnings.append(
-                f"Allowlist suppressed {suppressed} finding(s) "
+                f"Allowlist suppressed {len(suppressed)} finding(s) "
                 f"({options.allowlist.describe()})."
             )
     analysis.findings.extend(findings)

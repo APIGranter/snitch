@@ -111,6 +111,9 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(suppressed, 2)
         self.assertEqual(len(kept), 1)
         self.assertEqual(kept[0].ips, ["203.0.113.11"])
+        kept, suppressed_items = allow.partition(items)
+        self.assertEqual(kept, [items[2]])
+        self.assertEqual(suppressed_items, [items[0], items[1]])
 
 
 class HeuristicsIntegrationTests(unittest.TestCase):
@@ -131,6 +134,7 @@ class HeuristicsIntegrationTests(unittest.TestCase):
         self.assertFalse([f for f in findings if f.id == "beaconing"])
         self.assertTrue(any("Allowlist suppressed" in w for w in analysis.warnings))
         self.assertEqual(analysis.findings, [])
+        self.assertEqual([f.id for f in analysis.suppressed_findings], ["beaconing"])
 
 
 if __name__ == "__main__":

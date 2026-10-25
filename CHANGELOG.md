@@ -21,7 +21,8 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Client selection: `--auto-clients`, `--hotspot-net`, `--gateway`,
   `--exclude-ip`, `--min-packets`.
 - Finding allowlist (`--allowlist PATH`): suppress findings for known-good
-  IPs, CIDRs and domain suffixes (boundary-aware), with a suppression warning.
+  IPs, CIDRs and domain suffixes (boundary-aware), with a suppression warning
+  and a "Suppressed by allowlist" section in the dashboard.
 - Automatic fallback to `--auto-clients` when the default Windows-hotspot
   filter matches no clients (with a warning); explicit network options disable
   the fallback.
@@ -49,7 +50,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 107 unit/integration tests (no tshark or network required).
+- 108 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

@@ -464,6 +464,14 @@
         <input id="finding-search" type="search" placeholder="Search findings, IPs, domains…" aria-label="Search findings">
       </div>
       <div class="findings-grid" id="findings-grid"></div>
+      <div id="suppressed-wrap" class="hidden">
+        <div class="section-title">Suppressed by allowlist <span class="badge" id="suppressed-total"></span></div>
+        <p class="muted" style="font-size:11px;margin:0 0 8px">These findings matched an allowlist entry and are excluded from totals. Review the allowlist if any look unexpected.</p>
+        <details>
+          <summary class="muted" style="cursor:pointer;font-size:12px">Show suppressed findings</summary>
+          <div class="finding-list" id="suppressed-findings" style="margin-top:8px"></div>
+        </details>
+      </div>
     </div>
   </section>
 
@@ -971,6 +979,20 @@ function initFindings(){
   $("#finding-search").addEventListener("input", (e) => { findingQuery = e.target.value; drawFindingsTab(); });
 }
 
+function fillSuppressedFindings(){
+  const rows = REPORT.suppressed || [];
+  const wrap = $("#suppressed-wrap");
+  if (!wrap || !rows.length) return;
+  wrap.classList.remove("hidden");
+  $("#suppressed-total").textContent = rows.length + " hidden";
+  $("#suppressed-findings").innerHTML = rows.map((f) =>
+    `<div class="finding" style="border-left-color:${SEV_COLOURS[f.severity] || "var(--muted)"}">
+      <div class="ft">${severityPill(f.severity)} <span>${esc(f.title)}</span></div>
+      <div class="fd">${esc(f.detail)}</div>
+      <div class="fm">Matching allowlist entry · ${esc(findingMeta(f))}</div>
+    </div>`).join("");
+}
+
 // ---------------------------------------------------------------- tables
 const PAGE_SIZE = 50;
 const tables = {
@@ -1442,6 +1464,7 @@ function boot(){
   drawCharts();
   fillKeyFindings();
   drawFindingsTab();
+  fillSuppressedFindings();
   initFindings();
   initTables();
   drawDestinations();

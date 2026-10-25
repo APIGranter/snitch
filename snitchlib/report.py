@@ -254,6 +254,9 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
     findings = [asdict(finding) for finding in analysis.findings]
     findings.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), -f.get("score", 0)))
     findings = findings[:MAX_DASHBOARD_FINDINGS]
+    suppressed = [asdict(finding) for finding in analysis.suppressed_findings]
+    suppressed.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), -f.get("score", 0)))
+    suppressed = suppressed[:MAX_DASHBOARD_FINDINGS]
     findings_by_severity = Counter(f["severity"] for f in findings)
     anomaly_bases = sorted({
         domain for f in findings
@@ -310,6 +313,7 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
         "clean": risk_counter.get("clean", 0),
         "unknown": risk_counter.get("unknown", 0),
         "findings": len(findings),
+        "suppressed_findings": len(suppressed),
         "findings_by_severity": dict(findings_by_severity),
         "duration": analysis.duration,
     }
@@ -325,6 +329,7 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
         "dns": dns_rows[:MAX_DNS_ROWS],
         "dns_total": len(dns_rows),
         "findings": findings,
+        "suppressed": suppressed,
         "dns_anomaly_bases": anomaly_bases,
         "timeline": _timeline(analysis),
         "classification": classification,
@@ -520,6 +525,12 @@ def save_summary_txt(report: Dict[str, Any], analysis: Analysis, path: str) -> N
         "Findings",
         "-" * 72,
     ]
+    if summary.get("suppressed_findings"):
+        lines.append(
+            f"Allowlist suppressed {summary['suppressed_findings']} finding(s); "
+            "see data/analysis.json."
+        )
+        lines.append("")
     if not report["findings"]:
         lines.append("No findings above the configured thresholds.")
     for finding in report["findings"]:
