@@ -9,8 +9,11 @@ from unittest import mock
 
 from snitchlib.cli import (
     _apply_config, _client_options, _csv_values, _extract_config_arg,
-    _find_config_path, _load_config, build_parser, read_api_key,
+    _find_config_path, _load_config, _should_auto_retry, build_parser,
+    read_api_key,
 )
+from snitchlib.extract import ExtractionOptions
+from snitchlib.models import Analysis, Destination
 from snitchlib.util import Logger
 
 
@@ -99,6 +102,41 @@ class ConfigTests(unittest.TestCase):
     def test_csv_values_accepts_lists(self):
         self.assertEqual(_csv_values(["a,b", "c"]), ["a", "b", "c"])
         self.assertEqual(_csv_values(None), [])
+
+
+class ClientFallbackTests(unittest.TestCase):
+    def args(self, *extra):
+        return build_parser().parse_args(["capture.pcapng", *extra])
+
+    def test_fallback_when_default_filter_matched_nothing(self):
+        self.assertTrue(_should_auto_retry(
+            self.args(), Analysis(), ExtractionOptions(mode="client")))
+
+    def test_no_fallback_when_results_exist(self):
+        analysis = Analysis()
+        analysis.clients["10.0.0.2"] = object()
+        self.assertFalse(_should_auto_retry(
+            self.args(), analysis, ExtractionOptions(mode="client")))
+        analysis = Analysis()
+        analysis.destinations["203.0.113.1"] = Destination(ip="203.0.113.1")
+        self.assertFalse(_should_auto_retry(
+            self.args(), analysis, ExtractionOptions(mode="client")))
+
+    def test_no_fallback_with_explicit_network_or_mode(self):
+        self.assertFalse(_should_auto_retry(
+            self.args("--hotspot-net", "10.0.0.0/8"), Analysis(),
+            ExtractionOptions(mode="client")))
+        self.assertFalse(_should_auto_retry(
+            self.args("--gateway", "10.0.0.1"), Analysis(),
+            ExtractionOptions(mode="client")))
+        self.assertFalse(_should_auto_retry(
+            self.args(), Analysis(),
+            ExtractionOptions(mode="client", auto_clients=True)))
+        self.assertFalse(_should_auto_retry(
+            self.args(), Analysis(),
+            ExtractionOptions(mode="ip", src_ips={"10.0.0.2"})))
+        self.assertFalse(_should_auto_retry(
+            self.args(), Analysis(), ExtractionOptions(mode="all")))
 
 
 class ApiKeyTests(unittest.TestCase):

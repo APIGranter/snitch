@@ -102,8 +102,10 @@ when a key is present).
 ## Choosing what to analyze
 
 By default SNItch assumes the Windows-hotspot layout used by the original
-project: clients in `192.168.137.0/24` and gateway `192.168.137.1`. On other
-networks pick one of:
+project: clients in `192.168.137.0/24` and gateway `192.168.137.1`. If that
+default matches **no clients at all**, SNItch retries once with
+`--auto-clients` and records a warning. On other networks you can also pick one
+of these explicitly:
 
 | Option | Meaning |
 |---|---|
@@ -264,7 +266,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 92 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 95 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

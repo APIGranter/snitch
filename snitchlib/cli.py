@@ -13,6 +13,7 @@ import argparse
 import os
 import shutil
 import sys
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -453,6 +454,24 @@ def _limited(rows: Iterable[Dict[str, str]], limit: Optional[int]):
         yield row
 
 
+def _should_auto_retry(args: argparse.Namespace, analysis: Any,
+                       options: ExtractionOptions) -> bool:
+    """True when the default hotspot filter matched nothing at all.
+
+    On non-Windows-hotspot networks the 1.x default (192.168.137.0/24) often
+    finds no clients.  Rather than fail, retry once with ``--auto-clients``.
+    Explicit network/gateway values disable the fallback so typos stay visible.
+    """
+    if options.mode != "client" or options.auto_clients:
+        return False
+    if analysis.destinations or analysis.clients:
+        return False
+    hotspot = str(getattr(args, "hotspot_net", "") or "").strip()
+    gateway = str(getattr(args, "gateway", "") or "").strip()
+    return (hotspot == DEFAULTS["hotspot_net"]
+            and gateway == DEFAULTS["gateway"])
+
+
 def _print_interfaces(tshark: str) -> int:
     try:
         interfaces = list_interfaces(tshark)
@@ -611,6 +630,23 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
     except TsharkError as exc:
         logger.error(str(exc))
         return 2
+
+    if _should_auto_retry(args, analysis, options):
+        logger.warn(
+            "No clients matched the default hotspot network "
+            f"({DEFAULTS['hotspot_net']}); retrying with --auto-clients."
+        )
+        options = replace(options, auto_clients=True)
+        rows = _limited(iter_packets(source, tshark, display_filter, logger), limit)
+        try:
+            analysis = extract(rows, options, logger)
+        except TsharkError as exc:
+            logger.error(str(exc))
+            return 2
+        analysis.warnings.append(
+            "The default hotspot client filter matched no clients; "
+            "auto-clients fallback was used."
+        )
 
     analysis.capture.update(_capture_meta(
         args, tshark,
