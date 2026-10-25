@@ -123,6 +123,9 @@ class ReportTests(unittest.TestCase):
         # The About tab ships a client-side threshold tuner.
         self.assertIn("heuristic-tuner", html)
         self.assertIn("Copy CLI command", html)
+        # Findings can be filtered by severity, confidence and category.
+        self.assertIn("finding-confidence", html)
+        self.assertIn("finding-category", html)
 
     def test_dashboard_payload_caps_but_keeps_finding_rows(self):
         analysis = sample_analysis()

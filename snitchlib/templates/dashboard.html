@@ -501,6 +501,15 @@
       </div>
       <div class="toolbar">
         <input id="finding-search" type="search" placeholder="Search findings, IPs, domains…" aria-label="Search findings">
+        <select id="finding-confidence" aria-label="Filter by confidence">
+          <option value="">All confidence</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <select id="finding-category" aria-label="Filter by finding category">
+          <option value="">All categories</option>
+        </select>
       </div>
       <div class="findings-grid" id="findings-grid"></div>
       <div id="suppressed-wrap" class="hidden">
@@ -1010,11 +1019,13 @@ function fillKeyFindings(){
     el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
   });
 }
-let findingSeverity = "", findingQuery = "";
+let findingSeverity = "", findingQuery = "", findingConfidence = "", findingCategory = "";
 function filteredFindings(){
   const q = findingQuery.toLowerCase();
   return (REPORT.findings || []).filter((f) => {
     if (findingSeverity && f.severity !== findingSeverity) return false;
+    if (findingConfidence && f.confidence !== findingConfidence) return false;
+    if (findingCategory && f.id !== findingCategory) return false;
     if (!q) return true;
     return [f.title, f.detail, f.id, ...(f.ips||[]), ...(f.domains||[])]
       .join(" ").toLowerCase().includes(q);
@@ -1022,7 +1033,9 @@ function filteredFindings(){
 }
 function drawFindingsTab(){
   const rows = filteredFindings();
-  $("#findings-total").textContent = (REPORT.findings||[]).length + " total";
+  const total = (REPORT.findings||[]).length;
+  $("#findings-total").textContent = rows.length === total
+    ? total + " total" : rows.length + " of " + total;
   const grid = $("#findings-grid");
   if (!rows.length) { grid.innerHTML = '<div class="empty">No findings match this filter.</div>'; return; }
   grid.innerHTML = rows.slice(0, 200).map((f, i) => findingCard(f, i, false)).join("");
@@ -1044,6 +1057,25 @@ function initFindings(){
     drawFindingsTab();
   }));
   $("#finding-search").addEventListener("input", (e) => { findingQuery = e.target.value; drawFindingsTab(); });
+  const confidence = $("#finding-confidence");
+  if (confidence) confidence.addEventListener("change", (e) => {
+    findingConfidence = e.target.value;
+    drawFindingsTab();
+  });
+  const category = $("#finding-category");
+  if (category) {
+    const ids = Array.from(new Set((REPORT.findings || []).map(f => f.id).filter(Boolean))).sort();
+    ids.forEach(id => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id.replace(/_/g, " ");
+      category.appendChild(option);
+    });
+    category.addEventListener("change", (e) => {
+      findingCategory = e.target.value;
+      drawFindingsTab();
+    });
+  }
 }
 
 function fillSuppressedFindings(){
