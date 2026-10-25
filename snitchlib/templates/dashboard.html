@@ -1,0 +1,1462 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>SNItch · Network traffic analysis</title>
+<style>
+  :root{
+    --bg:#0b1017; --bg2:#0f1621; --panel:#141e2b; --panel2:#1b2838;
+    --line:#26374b; --line2:#33485f; --txt:#e8eef6; --muted:#8fa5bc;
+    --accent:#38bdf8; --accent2:#22d3a6; --warn:#fbbf24; --danger:#f87171;
+    --crit:#f43f5e; --tor:#a78bfa; --land:#1d2c3d; --land-stroke:#2d4660;
+    --shadow:0 15px 45px rgba(0,0,0,.28); --radius:14px;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  html[data-theme="light"]{
+    --bg:#f4f7fb; --bg2:#eaf0f7; --panel:#ffffff; --panel2:#f1f5fa;
+    --line:#dbe4ee; --line2:#c7d3e1; --txt:#172433; --muted:#5d7289;
+    --accent:#0369a1; --accent2:#0f766e; --warn:#b45309; --danger:#dc2626;
+    --crit:#be123c; --tor:#6d28d9; --land:#dbe7f3; --land-stroke:#b9cde1;
+    --shadow:0 15px 40px rgba(21,43,70,.10);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif}
+  a{color:var(--accent)}
+  .skip{position:absolute;left:-999px;top:8px;background:var(--panel);color:var(--txt);padding:8px 12px;border-radius:8px;z-index:100}
+  .skip:focus{left:8px}
+  .muted{color:var(--muted)}
+  .mono{font-family:var(--mono)}
+  .hidden{display:none !important}
+  header.top{
+    display:flex;gap:18px;align-items:center;justify-content:space-between;
+    padding:18px 26px;border-bottom:1px solid var(--line);
+    background:linear-gradient(120deg,var(--bg2),var(--bg));position:sticky;top:0;z-index:12;
+    backdrop-filter:blur(8px);
+  }
+  .brand{display:flex;align-items:center;gap:12px;min-width:0}
+  .logo{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+        background:linear-gradient(135deg,var(--accent),var(--accent2));color:#041018;
+        font-size:20px;font-weight:800;flex:0 0 auto}
+  .brand h1{font-size:19px;margin:0;letter-spacing:.2px;white-space:nowrap}
+  .brand .ver{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:1px 7px;margin-left:6px;vertical-align:2px}
+  .brand p{margin:1px 0 0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60vw}
+  .actions{display:flex;gap:8px;align-items:center;flex:0 0 auto}
+  button,.btn{
+    font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);
+    border-radius:9px;padding:8px 12px;cursor:pointer;text-decoration:none;display:inline-flex;
+    align-items:center;gap:6px;transition:border-color .15s,background .15s,transform .05s;
+  }
+  button:hover,.btn:hover{border-color:var(--line2);background:var(--bg2)}
+  button:active,.btn:active{transform:translateY(1px)}
+  button.primary,.btn.primary{background:var(--accent);color:#041018;border-color:var(--accent);font-weight:700}
+  button.ghost{background:transparent}
+  button.icon{padding:8px 10px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .subbar{display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between;
+          padding:10px 26px;border-bottom:1px solid var(--line);background:var(--bg2)}
+  .handle{font-weight:700;color:var(--accent);font-size:12px;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);
+          background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:20px;padding:4px 12px}
+  .quick{color:var(--muted);font-size:12px}
+  nav.tabs{display:flex;gap:2px;padding:0 18px;border-bottom:1px solid var(--line);
+           background:var(--bg);position:sticky;top:75px;z-index:11;overflow-x:auto}
+  .tab{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;
+       color:var(--muted);padding:12px 14px;white-space:nowrap;font-size:13px;font-weight:600}
+  .tab:hover{color:var(--txt);background:var(--panel2)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);background:transparent}
+  main{max-width:1360px;margin:0 auto;padding:22px 26px 60px}
+  .cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+        padding:14px 15px;cursor:default;min-width:0}
+  .card.click{cursor:pointer}
+  .card.click:hover{border-color:var(--line2);background:var(--panel2)}
+  .card .n{font-size:27px;font-weight:750;line-height:1.15;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-top:3px}
+  .card .s{color:var(--muted);font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card.danger .n{color:var(--danger)} .card.crit .n{color:var(--crit)}
+  .card.ok .n{color:var(--accent2)} .card.warn .n{color:var(--warn)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:17px;margin-bottom:18px;min-width:0}
+  .panel-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px;flex-wrap:wrap}
+  .panel h2{margin:0;font-size:14px;font-weight:700;letter-spacing:.2px}
+  .panel h2 .badge{font-weight:500;color:var(--muted);font-size:12px;margin-left:6px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+  .grid-map{display:grid;grid-template-columns:1.65fr .95fr;gap:18px}
+  .grid-map .panel{margin-bottom:18px}
+  svg{display:block;max-width:100%}
+  svg#map{width:100%;height:auto;background:
+      radial-gradient(circle at 55% 45%,color-mix(in srgb,var(--accent) 7%,transparent),transparent 55%),var(--bg2);
+      border-radius:10px;cursor:grab;touch-action:none}
+  svg#map.dragging{cursor:grabbing}
+  .country{fill:var(--land);stroke:var(--land-stroke);stroke-width:.35;vector-effect:non-scaling-stroke}
+  .dot{stroke:rgba(0,0,0,.55);stroke-width:.7;cursor:pointer;transition:fill-opacity .15s}
+  .dot:hover{stroke:#fff;stroke-width:1.6}
+  .map-tools{display:flex;gap:6px}
+  .map-tools button{padding:5px 9px;font-size:12px}
+  .map-legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:11px;margin-top:9px}
+  .map-legend span{display:inline-flex;align-items:center;gap:5px}
+  .swatch{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .finding-list{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto;padding-right:2px}
+  .finding{border:1px solid var(--line);border-left:3px solid var(--muted);border-radius:9px;
+           padding:10px 12px;background:var(--panel2);cursor:pointer;transition:border-color .15s}
+  .finding:hover{border-color:var(--line2)}
+  .finding .ft{display:flex;align-items:center;gap:8px;font-weight:650;font-size:13px}
+  .finding .fd{color:var(--muted);font-size:12px;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .finding .fm{color:var(--muted);font-size:11px;margin-top:5px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;
+        letter-spacing:.5px;text-transform:uppercase;white-space:nowrap}
+  .pill.critical{background:color-mix(in srgb,var(--crit) 18%,transparent);color:var(--crit)}
+  .pill.high{background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger)}
+  .pill.medium{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+  .pill.low{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+  .pill.info{background:color-mix(in srgb,var(--muted) 16%,transparent);color:var(--muted)}
+  .pill.risk-malicious{background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger)}
+  .pill.risk-suspicious{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+  .pill.risk-tor{background:color-mix(in srgb,var(--tor) 18%,transparent);color:var(--tor)}
+  .pill.risk-clean{background:color-mix(in srgb,var(--accent2) 16%,transparent);color:var(--accent2)}
+  .pill.risk-unknown{background:color-mix(in srgb,var(--muted) 15%,transparent);color:var(--muted)}
+  .bars{display:flex;flex-direction:column;gap:7px}
+  .bar-row{display:grid;grid-template-columns:minmax(90px,34%) 1fr auto;gap:9px;align-items:center;font-size:12px}
+  .bar-row .name{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-row .track{background:var(--panel2);border-radius:6px;height:15px;overflow:hidden}
+  .bar-row .fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--accent),var(--accent2));min-width:2px}
+  .bar-row .val{text-align:right;font-variant-numeric:tabular-nums;color:var(--txt);font-size:11px}
+  .donut-wrap{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  .donut{width:148px;height:148px;border-radius:50%;position:relative;flex:0 0 auto;
+         background:conic-gradient(var(--line) 0 100%)}
+  .donut::after{content:"";position:absolute;inset:23px;border-radius:50%;background:var(--panel)}
+  .donut .hole{position:absolute;inset:0;display:grid;place-items:center;z-index:1;text-align:center}
+  .donut .hole b{font-size:21px;display:block;line-height:1}
+  .donut .hole span{font-size:10px;color:var(--muted)}
+  .legend{display:flex;flex-direction:column;gap:5px;font-size:12px;min-width:130px;flex:1}
+  .legend .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .legend .name{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .legend .dotc{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:7px;flex:0 0 auto}
+  .timeline-wrap{position:relative}
+  svg#timeline{width:100%;height:auto;touch-action:none}
+  .tl-grid{stroke:var(--line);stroke-width:.6}
+  .tl-axis{fill:var(--muted);font-size:10px}
+  .tl-out{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
+  .tl-in{fill:none;stroke:var(--accent2);stroke-width:2;vector-effect:non-scaling-stroke}
+  .tl-out-area{fill:color-mix(in srgb,var(--accent) 12%,transparent)}
+  .tl-in-area{fill:color-mix(in srgb,var(--accent2) 10%,transparent)}
+  .tl-cursor{stroke:var(--txt);stroke-width:1;stroke-dasharray:3 3;opacity:.5}
+  .tl-legend{display:flex;gap:16px;align-items:center;color:var(--muted);font-size:11px;flex-wrap:wrap}
+  .tl-legend b{color:var(--txt);font-weight:600}
+  .toolbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:13px}
+  .toolbar input,.toolbar select{
+    font:inherit;font-size:13px;color:var(--txt);background:var(--panel);
+    border:1px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0}
+  .toolbar input{flex:1 1 240px}
+  .toolbar input::placeholder{color:var(--muted)}
+  .toolbar .spacer{flex:1}
+  .pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px;color:var(--muted);font-size:12px}
+  .pager button{padding:6px 10px;font-size:12px}
+  .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px}
+  th,td{padding:9px 11px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:650;font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+     cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0;background:var(--panel);z-index:1}
+  th:hover{color:var(--txt)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr.click{cursor:pointer}
+  tbody tr.click:hover{background:var(--panel2)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.nowrap{white-space:nowrap}
+  .hostnames{max-width:300px}
+  .hostnames .hn{display:inline-block;color:var(--muted);font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+  .empty{color:var(--muted);text-align:center;padding:30px 10px;font-size:13px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:3px 10px;font-size:11px;color:var(--muted)}
+  .chip b{color:var(--accent);font-weight:600}
+  .chip button{border:none;background:none;color:inherit;padding:0;font:inherit}
+  footer{color:var(--muted);font-size:11px;text-align:center;padding:22px;border-top:1px solid var(--line);margin-top:20px}
+  #tooltip{position:fixed;pointer-events:none;background:var(--bg2);border:1px solid var(--line2);
+           border-radius:9px;padding:8px 10px;font-size:11.5px;opacity:0;transition:opacity .08s;
+           max-width:290px;z-index:40;box-shadow:var(--shadow);line-height:1.45}
+  #tooltip b{color:var(--accent)}
+  .modal{position:fixed;inset:0;background:rgba(2,8,16,.68);display:flex;align-items:center;
+         justify-content:center;padding:18px;z-index:50;backdrop-filter:blur(3px)}
+  .modal-box{background:var(--panel);border:1px solid var(--line2);border-radius:16px;
+             width:100%;max-width:620px;max-height:88vh;overflow:auto;padding:22px 24px;
+             box-shadow:var(--shadow);position:relative}
+  .modal-box h3{margin:0 40px 3px 0;font-size:19px;font-family:var(--mono);overflow-wrap:anywhere}
+  .modal-box .sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+  .modal-close{position:absolute;top:12px;right:14px;background:none;border:none;font-size:24px;
+               line-height:1;color:var(--muted);padding:2px 8px}
+  .banner{padding:10px 12px;border-radius:9px;font-size:13px;font-weight:650;margin:0 0 14px}
+  .banner.malicious{background:color-mix(in srgb,var(--danger) 13%,transparent);color:var(--danger)}
+  .banner.suspicious{background:color-mix(in srgb,var(--warn) 13%,transparent);color:var(--warn)}
+  .banner.tor{background:color-mix(in srgb,var(--tor) 13%,transparent);color:var(--tor)}
+  .banner.clean{background:color-mix(in srgb,var(--accent2) 12%,transparent);color:var(--accent2)}
+  .banner.unknown{background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--muted)}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;font-size:13px;margin:10px 0}
+  .kv dt{color:var(--muted)} .kv dd{margin:0;overflow-wrap:anywhere}
+  .modal-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+  .modal-actions .btn{flex:1;justify-content:center;min-width:140px}
+  pre.evidence{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:12px;
+               font-size:11px;overflow:auto;max-height:280px;white-space:pre-wrap;overflow-wrap:anywhere}
+  .section-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:16px 0 7px}
+  .notice{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--warn);
+          border-radius:9px;padding:10px 12px;color:var(--muted);font-size:12px;margin-bottom:14px}
+  .warnlist{margin:0;padding-left:18px;color:var(--muted);font-size:12px}
+  .warnlist li{margin:4px 0}
+  .severity-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .severity-filters button{font-size:12px;padding:6px 10px}
+  .severity-filters button.active{border-color:var(--accent);color:var(--accent)}
+  .findings-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .about-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .about-grid .panel{margin:0}
+  .kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:1px 5px;background:var(--panel2)}
+  @media (max-width:1100px){
+    .cards{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .grid-map,.grid-2,.grid-3,.about-grid{grid-template-columns:1fr}
+    .findings-grid{grid-template-columns:1fr}
+  }
+  @media (max-width:720px){
+    header.top{padding:12px 15px;flex-wrap:wrap}
+    .brand p{max-width:88vw}
+    .actions{width:100%;justify-content:flex-end}
+    .subbar{padding:8px 15px} nav.tabs{top:118px;padding:0 8px}
+    main{padding:14px 13px 50px}
+    .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .card .n{font-size:23px}
+    .panel{padding:13px}
+    .brand p{display:none}
+    th,td{padding:8px}
+  }
+  @media print{
+    header.top,nav.tabs,.actions,.toolbar,.pager,.map-tools,.modal{display:none !important}
+    body{background:#fff;color:#000}
+    .panel,.card{border-color:#ccc;background:#fff}
+    main{max-width:none;padding:0}
+    .tab-section{display:block !important}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">◈</div>
+    <div>
+      <h1 id="doc-title">SNItch <span class="ver">v2</span></h1>
+      <p id="capture-line">Loading report…</p>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="ghost" id="export-json" title="Download the full report as JSON">JSON</button>
+    <button class="ghost" id="export-csv" title="Download destinations as CSV">CSV</button>
+    <button class="icon" id="theme-btn" title="Toggle light/dark theme" aria-label="Toggle theme">◐</button>
+  </div>
+</header>
+<div class="subbar">
+  <span class="quick" id="quick-stats"></span>
+  <span class="handle" id="handle"></span>
+</div>
+<nav class="tabs" id="tabs" aria-label="Report sections">
+  <button class="tab active" data-tab="overview" type="button">Overview</button>
+  <button class="tab" data-tab="destinations" type="button">Destinations</button>
+  <button class="tab" data-tab="domains" type="button">Domains</button>
+  <button class="tab" data-tab="dns" type="button">DNS</button>
+  <button class="tab" data-tab="flows" type="button">Flows</button>
+  <button class="tab" data-tab="findings" type="button">Findings</button>
+  <button class="tab" data-tab="about" type="button">About</button>
+</nav>
+
+<main id="main">
+  <section class="tab-section" data-section="overview">
+    <div class="cards" id="cards"></div>
+
+    <div class="grid-map">
+      <div class="panel">
+        <div class="panel-h">
+          <h2>Contacted hosts map <span class="badge" id="map-count"></span></h2>
+          <div class="map-tools">
+            <button type="button" id="map-in" title="Zoom in">+</button>
+            <button type="button" id="map-out" title="Zoom out">−</button>
+            <button type="button" id="map-reset" title="Reset zoom">Reset</button>
+          </div>
+        </div>
+        <svg id="map" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of contacted hosts"></svg>
+        <div class="map-legend">
+          <span><i class="swatch" style="background:var(--danger)"></i> malicious</span>
+          <span><i class="swatch" style="background:var(--warn)"></i> suspicious</span>
+          <span><i class="swatch" style="background:var(--tor)"></i> Tor exit</span>
+          <span><i class="swatch" style="background:var(--accent2)"></i> clean</span>
+          <span><i class="swatch" style="background:var(--accent)"></i> not checked</span>
+          <span style="margin-left:auto">dot size = bytes</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Key findings <span class="badge" id="findings-badge"></span></h2>
+          <button class="ghost" type="button" id="all-findings">View all</button></div>
+        <div class="finding-list" id="key-findings"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h">
+        <h2>Traffic over time</h2>
+        <div class="tl-legend">
+          <span><i class="swatch" style="background:var(--accent);border-radius:2px"></i> outbound <b id="tl-total-out"></b></span>
+          <span><i class="swatch" style="background:var(--accent2);border-radius:2px"></i> inbound <b id="tl-total-in"></b></span>
+          <select id="tl-metric" aria-label="Timeline metric" style="font:inherit;font-size:11px;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:4px 7px">
+            <option value="bytes">Bytes</option>
+            <option value="packets">Packets</option>
+          </select>
+        </div>
+      </div>
+      <div class="timeline-wrap" id="timeline-wrap">
+        <svg id="timeline" viewBox="0 0 1000 260" preserveAspectRatio="none" role="img" aria-label="Traffic timeline"></svg>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="panel"><div class="panel-h"><h2>Domain categories</h2></div><div id="category-donut"></div></div>
+      <div class="panel"><div class="panel-h"><h2>Protocols</h2></div><div class="bars" id="protocol-bars"></div></div>
+      <div class="panel"><div class="panel-h"><h2>Services / ports</h2></div><div class="bars" id="port-bars"></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="panel"><div class="panel-h"><h2>Countries</h2></div><div class="bars" id="country-bars"></div></div>
+      <div class="panel"><div class="panel-h"><h2>Network providers</h2></div><div class="bars" id="provider-bars"></div></div>
+    </div>
+  </section>
+
+  <section class="tab-section hidden" data-section="destinations">
+    <div class="panel">
+      <div class="panel-h"><h2>Destinations <span class="badge" id="dest-total"></span></h2></div>
+      <div class="toolbar">
+        <input id="dest-search" type="search" placeholder="Search IP, country, city, provider, ASN, hostname, rDNS…" aria-label="Search destinations">
+        <select id="dest-risk" aria-label="Filter by risk">
+          <option value="">All risk levels</option>
+          <option value="malicious">Malicious</option>
+          <option value="suspicious">Suspicious</option>
+          <option value="tor">Tor exit</option>
+          <option value="clean">Clean</option>
+          <option value="unknown">Not checked</option>
+        </select>
+        <select id="dest-country" aria-label="Filter by country"><option value="">All countries</option></select>
+      </div>
+      <div class="table-wrap">
+        <table id="dest-table">
+          <thead><tr>
+            <th data-sort="ip">IP</th>
+            <th data-sort="country">Location</th>
+            <th data-sort="isp">Provider / ASN</th>
+            <th data-sort="domains">Hostnames</th>
+            <th data-sort="bytes" class="num">Traffic</th>
+            <th data-sort="risk">Risk</th>
+            <th data-sort="last_seen">Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="dest-page-label"></span>
+        <button type="button" id="dest-prev">Prev</button>
+        <button type="button" id="dest-next">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-section hidden" data-section="domains">
+    <div class="panel">
+      <div class="panel-h"><h2>Domains <span class="badge" id="dom-total"></span></h2></div>
+      <div class="toolbar">
+        <input id="dom-search" type="search" placeholder="Search domain, base domain, category, IP…" aria-label="Search domains">
+        <select id="dom-category" aria-label="Filter by category"><option value="">All categories</option></select>
+      </div>
+      <div class="table-wrap">
+        <table id="dom-table">
+          <thead><tr>
+            <th data-sort="domain">Domain</th>
+            <th data-sort="category">Category</th>
+            <th data-sort="hits" class="num">Hits</th>
+            <th data-sort="sources">Sources</th>
+            <th data-sort="ips" class="num">IPs</th>
+            <th data-sort="vt">VirusTotal</th>
+            <th data-sort="last_seen">Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="dom-page-label"></span>
+        <button type="button" id="dom-prev">Prev</button>
+        <button type="button" id="dom-next">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-section hidden" data-section="dns">
+    <div class="panel">
+      <div class="panel-h"><h2>DNS queries <span class="badge" id="dns-total"></span></h2></div>
+      <div class="toolbar">
+        <input id="dns-search" type="search" placeholder="Search DNS name, answer, client…" aria-label="Search DNS">
+        <select id="dns-type" aria-label="Filter by record type"><option value="">All types</option></select>
+      </div>
+      <div class="table-wrap">
+        <table id="dns-table">
+          <thead><tr>
+            <th data-sort="qname">Name</th>
+            <th data-sort="qtype">Type</th>
+            <th data-sort="count" class="num">Queries</th>
+            <th data-sort="answers">Answers</th>
+            <th data-sort="response_ms" class="num">Response</th>
+            <th data-sort="last_seen">Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="dns-page-label"></span>
+        <button type="button" id="dns-prev">Prev</button>
+        <button type="button" id="dns-next">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-section hidden" data-section="flows">
+    <div class="panel">
+      <div class="panel-h"><h2>Top flows <span class="badge" id="flow-total"></span></h2></div>
+      <div class="toolbar">
+        <input id="flow-search" type="search" placeholder="Search client, destination, service, hostname…" aria-label="Search flows">
+      </div>
+      <div class="table-wrap">
+        <table id="flow-table">
+          <thead><tr>
+            <th data-sort="client">Client</th>
+            <th data-sort="dst">Destination</th>
+            <th data-sort="service">Service</th>
+            <th data-sort="proto">Proto</th>
+            <th data-sort="packets" class="num">Packets</th>
+            <th data-sort="bytes" class="num">Bytes</th>
+            <th data-sort="domains">Hostnames</th>
+            <th data-sort="last_seen">Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="flow-page-label"></span>
+        <button type="button" id="flow-prev">Prev</button>
+        <button type="button" id="flow-next">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-section hidden" data-section="findings">
+    <div class="panel">
+      <div class="panel-h"><h2>Findings <span class="badge" id="findings-total"></span></h2></div>
+      <div class="severity-filters" id="severity-filters">
+        <button class="active" data-sev="" type="button">All</button>
+        <button data-sev="critical" type="button">Critical</button>
+        <button data-sev="high" type="button">High</button>
+        <button data-sev="medium" type="button">Medium</button>
+        <button data-sev="low" type="button">Low</button>
+        <button data-sev="info" type="button">Info</button>
+      </div>
+      <div class="toolbar">
+        <input id="finding-search" type="search" placeholder="Search findings, IPs, domains…" aria-label="Search findings">
+      </div>
+      <div class="findings-grid" id="findings-grid"></div>
+    </div>
+  </section>
+
+  <section class="tab-section hidden" data-section="about">
+    <div class="about-grid">
+      <div class="panel"><div class="panel-h"><h2>Capture</h2></div><div id="about-capture"></div></div>
+      <div class="panel"><div class="panel-h"><h2>Enrichment / configuration</h2></div><div id="about-config"></div></div>
+      <div class="panel"><div class="panel-h"><h2>Category definitions</h2></div><div id="about-categories"></div></div>
+      <div class="panel"><div class="panel-h"><h2>Notes &amp; limitations</h2></div><div id="about-notes"></div></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Generated by <b>SNItch</b> · data from the capture, ipwho.is/ipapi.co, RDAP and VirusTotal ·
+  <span id="footer-handle"></span> · this report is fully offline
+</footer>
+
+<div id="tooltip" role="tooltip"></div>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-box">
+    <button class="modal-close" id="modal-close" aria-label="Close dialog">&times;</button>
+    <h3 id="modal-title"></h3>
+    <div class="sub" id="modal-sub"></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const REPORT = /*__REPORT__*/;
+const GEO = /*__GEO__*/;
+
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+const ESC_MAP = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
+const esc = (value) => String(value === null || value === undefined ? "" : value)
+  .replace(/[&<>"']/g, (ch) => ESC_MAP[ch]);
+
+const RISK_COLOURS = {
+  malicious:"var(--danger)", suspicious:"var(--warn)", tor:"var(--tor)",
+  clean:"var(--accent2)", unknown:"var(--accent)"
+};
+const SEV_COLOURS = {
+  critical:"var(--crit)", high:"var(--danger)", medium:"var(--warn)",
+  low:"var(--accent)", info:"var(--muted)"
+};
+const CAT_COLOURS = {
+  "Target":"#38bdf8", "Chatbot / support":"#22d3a6", "Ads / tracking":"#f87171",
+  "Analytics":"#fb923c", "Device / OS telemetry":"#fbbf24",
+  "Software updates":"#eab308", "Other apps":"#a78bfa", "Email":"#60a5fa",
+  "Security / VPN":"#34d399", "CDN / infrastructure":"#818cf8",
+  "Cloud / hosting":"#2dd4bf", "Unclassified":"#8fa5bc"
+};
+const CAT_ORDER = Object.keys(CAT_COLOURS);
+const categoryColour = (name) => CAT_COLOURS[name] || "#8fa5bc";
+
+const fmtNum = (n) => {
+  n = Number(n || 0);
+  if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(1).replace(/\.0$/,"") + "B";
+  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,"") + "M";
+  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1).replace(/\.0$/,"") + "k";
+  return String(n);
+};
+const fmtBytes = (n) => {
+  n = Number(n || 0);
+  const units = ["B","KiB","MiB","GiB","TiB"];
+  let i = 0;
+  while (Math.abs(n) >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : String(Math.round(n))) + " " + units[i];
+};
+const pad = (n) => String(n).padStart(2, "0");
+const fmtTime = (epoch, full) => {
+  if (!epoch) return "–";
+  const d = new Date(Number(epoch) * 1000);
+  if (isNaN(d.getTime())) return "–";
+  const time = pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + ":" + pad(d.getUTCSeconds());
+  if (!full) return time;
+  return d.getUTCFullYear() + "-" + pad(d.getUTCMonth()+1) + "-" + pad(d.getUTCDate()) + " " + time;
+};
+const fmtDur = (seconds) => {
+  seconds = Math.max(0, Number(seconds || 0));
+  if (seconds < 60) return Math.round(seconds) + "s";
+  const m = Math.floor(seconds/60), s = Math.round(seconds%60);
+  if (m < 60) return m + "m " + pad(s) + "s";
+  const h = Math.floor(m/60);
+  return h + "h " + pad(m%60) + "m";
+};
+const rangeText = (a, b) => {
+  if (!a || !b) return "";
+  const sameDay = new Date(a*1000).toISOString().slice(0,10) === new Date(b*1000).toISOString().slice(0,10);
+  return sameDay ? fmtTime(a, true) + " – " + fmtTime(b) + " UTC"
+                 : fmtTime(a, true) + " – " + fmtTime(b, true) + " UTC";
+};
+
+// ---------------------------------------------------------------- header
+function renderHeader(){
+  const meta = REPORT.meta || {};
+  const title = meta.title || "Network traffic analysis";
+  document.title = "SNItch · " + title;
+  $("#doc-title").innerHTML = "SNItch <span class=\"ver\">v" + esc(meta.version || "2") + "</span>";
+  const parts = [];
+  if (meta.file || meta.name) parts.push(esc(meta.file || meta.name));
+  if (meta.first_seen && meta.last_seen) parts.push(rangeText(meta.first_seen, meta.last_seen));
+  if (meta.duration) parts.push(fmtDur(meta.duration));
+  if (meta.mode) parts.push("mode " + esc(meta.mode));
+  if (meta.target) parts.push("target " + esc(meta.target));
+  $("#capture-line").innerHTML = parts.join("  ·  ") || "No capture metadata";
+  $("#handle").textContent = meta.handle || "@APIGranter";
+  $("#footer-handle").textContent = meta.handle || "@APIGranter";
+  const s = REPORT.summary || {};
+  $("#quick-stats").innerHTML =
+    esc(title) + "  ·  " + fmtNum(s.ips) + " destinations  ·  " + fmtNum(s.domains) +
+    " domains  ·  " + fmtNum(s.dns_query_count) + " DNS queries  ·  " +
+    fmtNum(s.findings) + " findings";
+
+  document.documentElement.setAttribute("data-theme", savedTheme());
+  const q = $("#quick-stats");
+  q.title = (meta.sha256 ? "SHA-256: " + meta.sha256 : "");
+}
+
+// ---------------------------------------------------------------- cards
+const CARD_LINKS = {
+  destinations:"destinations", domains:"domains", dns:"dns", findings:"findings",
+  clients:"destinations", map:"overview"
+};
+function buildCards(){
+  const s = REPORT.summary, m = REPORT.meta;
+  const cards = [
+    {id:"destinations", label:"Destinations", value:fmtNum(s.ips), sub:(s.clients||0)+" client(s)", cls:"", tab:"destinations"},
+    {id:"countries", label:"Countries", value:fmtNum(s.countries), sub:fmtNum(s.providers)+" providers", cls:"", tab:"destinations"},
+    {id:"domains", label:"Domains", value:fmtNum(s.domains), sub:fmtNum(s.dns_queries)+" DNS names", cls:"", tab:"domains"},
+    {id:"malicious", label:"Malicious", value:fmtNum(s.malicious), sub:(s.suspicious||0)+" suspicious", cls:s.malicious?"danger":"ok", tab:"destinations"},
+    {id:"findings", label:"Findings", value:fmtNum(s.findings),
+      sub:Object.entries(s.findings_by_severity||{}).map(([k,v])=>v+" "+k).join(" · ")||"none", cls:s.findings?"warn":"ok", tab:"findings"},
+    {id:"traffic", label:"Analyzed traffic", value:fmtBytes(s.analyzed_bytes), sub:fmtNum(s.analyzed_packets)+" packets", cls:"", tab:"overview"},
+  ];
+  $("#cards").innerHTML = cards.map(c =>
+    `<div class="card ${c.cls} click" data-go="${c.tab}" tabindex="0" role="button" aria-label="${esc(c.label)}: ${esc(c.value)}">
+      <div class="n">${esc(c.value)}</div><div class="l">${esc(c.label)}</div><div class="s">${esc(c.sub)}</div></div>`
+  ).join("");
+  $$("#cards .card").forEach(card => {
+    const go = () => switchTab(card.dataset.go);
+    card.addEventListener("click", go);
+    card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+  });
+}
+
+// ---------------------------------------------------------------- tabs
+function switchTab(name){
+  $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  $$(".tab-section").forEach(s => s.classList.toggle("hidden", s.dataset.section !== name));
+  if (location.hash !== "#" + name) {
+    try { history.replaceState(null, "", "#" + name); } catch(e) { location.hash = name; }
+  }
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+function initTabs(){
+  $$(".tab").forEach(tab => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
+  const initial = (location.hash || "").replace("#","");
+  if (initial && $(`.tab[data-tab="${CSS.escape(initial)}"]`)) switchTab(initial);
+  $("#all-findings").addEventListener("click", () => switchTab("findings"));
+}
+
+// ---------------------------------------------------------------- theme
+function savedTheme(){
+  try { return localStorage.getItem("snitch-theme") || "dark"; } catch(e) { return "dark"; }
+}
+function initTheme(){
+  $("#theme-btn").addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("snitch-theme", next); } catch(e) {}
+  });
+}
+
+// ---------------------------------------------------------------- map
+let mapView = {x:0, y:0, w:1000, h:500};
+let mapMoved = false;
+function applyMapView(){
+  $("#map").setAttribute("viewBox", `${mapView.x} ${mapView.y} ${mapView.w} ${mapView.h}`);
+}
+function clampView(){
+  mapView.w = Math.min(1200, Math.max(120, mapView.w));
+  mapView.h = mapView.w / 2;
+  mapView.x = Math.min(1000 - mapView.w, Math.max(0, mapView.x));
+  mapView.y = Math.min(500 - mapView.h, Math.max(0, mapView.y));
+}
+function zoomMap(factor, cx, cy){
+  const oldW = mapView.w, oldH = mapView.h;
+  const px = mapView.x + (cx === undefined ? 0.5 : cx) * oldW;
+  const py = mapView.y + (cy === undefined ? 0.5 : cy) * oldH;
+  mapView.w *= factor; clampView();
+  mapView.x = px - (cx === undefined ? 0.5 : cx) * mapView.w;
+  mapView.y = py - (cy === undefined ? 0.5 : cy) * mapView.h;
+  clampView(); applyMapView();
+}
+function initMapZoom(){
+  const map = $("#map");
+  map.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const rect = map.getBoundingClientRect();
+    const cx = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
+    const cy = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
+    zoomMap(event.deltaY > 0 ? 1.18 : 0.85, Math.max(0,Math.min(1,cx)), Math.max(0,Math.min(1,cy)));
+  }, {passive:false});
+  let drag = null;
+  map.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    drag = {x:event.clientX, y:event.clientY, vx:mapView.x, vy:mapView.y};
+    mapMoved = false;
+    map.classList.add("dragging");
+    try { map.setPointerCapture(event.pointerId); } catch(e) {}
+  });
+  map.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const rect = map.getBoundingClientRect();
+    const dx = (event.clientX - drag.x) * (mapView.w / Math.max(1, rect.width));
+    const dy = (event.clientY - drag.y) * (mapView.h / Math.max(1, rect.height));
+    if (Math.abs(event.clientX - drag.x) + Math.abs(event.clientY - drag.y) > 3) mapMoved = true;
+    mapView.x = drag.vx - dx; mapView.y = drag.vy - dy;
+    clampView(); applyMapView();
+  });
+  const endDrag = () => { drag = null; map.classList.remove("dragging"); };
+  map.addEventListener("pointerup", endDrag);
+  map.addEventListener("pointercancel", endDrag);
+  $("#map-in").addEventListener("click", () => zoomMap(0.75));
+  $("#map-out").addEventListener("click", () => zoomMap(1.33));
+  $("#map-reset").addEventListener("click", () => { mapView = {x:0,y:0,w:1000,h:500}; applyMapView(); });
+}
+const proj = (lon, lat) => [ (Number(lon) + 180) / 360 * 1000, (90 - Number(lat)) / 180 * 500 ];
+function pathFromRings(rings){
+  let d = "";
+  for (const ring of rings) {
+    ring.forEach((pt, i) => {
+      const [x, y] = proj(pt[0], pt[1]);
+      d += (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+    });
+    d += "Z";
+  }
+  return d;
+}
+function drawMap(){
+  const map = $("#map");
+  const NS = "http://www.w3.org/2000/svg";
+  if (GEO && GEO.features) {
+    for (const feature of GEO.features) {
+      const geom = feature.geometry;
+      if (!geom) continue;
+      const polygons = geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+      let d = "";
+      for (const poly of polygons || []) d += pathFromRings(poly);
+      const path = document.createElementNS(NS, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("class", "country");
+      map.appendChild(path);
+    }
+  }
+  const points = (REPORT.destinations || []).filter(d =>
+    d.geo && Number.isFinite(Number(d.geo.lat)) && Number.isFinite(Number(d.geo.lon)) &&
+    d.geo.lat !== null && d.geo.lon !== null);
+  const maxBytes = Math.max(1, ...points.map(d => Number(d.bytes || 0)));
+  const tip = $("#tooltip");
+  let shown = 0;
+  points.forEach((dest) => {
+    const [x, y] = proj(dest.geo.lon, dest.geo.lat);
+    const radius = 3.5 + 9 * Math.sqrt(Number(dest.bytes || 0) / maxBytes);
+    const dot = document.createElementNS(NS, "circle");
+    dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+    dot.setAttribute("r", Math.min(14, radius).toFixed(2));
+    dot.setAttribute("fill", RISK_COLOURS[dest.risk] || RISK_COLOURS.unknown);
+    dot.setAttribute("fill-opacity", "0.88");
+    dot.setAttribute("class", "dot");
+    dot.setAttribute("data-ip", dest.ip);
+    dot.addEventListener("pointerenter", (event) => {
+      tip.innerHTML =
+        `<b>${esc(dest.ip)}</b><br>` +
+        `${esc([dest.geo.city, dest.geo.country].filter(Boolean).join(", ") || "Unknown location")}<br>` +
+        `${esc(dest.geo.isp || "")}${dest.geo.asn ? " (" + esc(dest.geo.asn) + ")" : ""}<br>` +
+        `${fmtBytes(dest.bytes)} · ${fmtNum(dest.packets)} packets · <span style="color:${RISK_COLOURS[dest.risk]}">${esc(dest.risk)}</span>`;
+      tip.style.opacity = 1;
+      moveTip(event);
+    });
+    dot.addEventListener("pointermove", moveTip);
+    dot.addEventListener("pointerleave", () => { tip.style.opacity = 0; });
+    dot.addEventListener("click", (event) => {
+      if (mapMoved) { event.stopPropagation(); return; }
+      const index = REPORT.destinations.indexOf(dest);
+      openDestination(index);
+    });
+    map.appendChild(dot);
+    shown++;
+  });
+  $("#map-count").textContent = shown + " plotted";
+}
+function moveTip(event){
+  const tip = $("#tooltip");
+  const pad = 14;
+  let left = event.clientX + pad, top = event.clientY + pad;
+  const rect = tip.getBoundingClientRect();
+  if (left + rect.width > window.innerWidth - 8) left = event.clientX - rect.width - pad;
+  if (top + rect.height > window.innerHeight - 8) top = event.clientY - rect.height - pad;
+  tip.style.left = Math.max(6,left) + "px";
+  tip.style.top = Math.max(6,top) + "px";
+}
+
+// ---------------------------------------------------------------- timeline
+let timelineMetric = "bytes";
+function drawTimeline(){
+  const svg = $("#timeline");
+  const data = (REPORT.timeline && REPORT.timeline.points) || [];
+  svg.innerHTML = "";
+  const NS = "http://www.w3.org/2000/svg";
+  const W = 1000, H = 260, L = 52, R = 18, T = 18, B = 30;
+  const plotW = W - L - R, plotH = H - T - B;
+  const useBytes = timelineMetric === "bytes";
+  const value = (p) => useBytes ? (Number(p[3]) + Number(p[4])) : (Number(p[1]) + Number(p[2]));
+  const outValue = (p) => useBytes ? Number(p[3]) : Number(p[1]);
+  const inValue = (p) => useBytes ? Number(p[4]) : Number(p[2]);
+  const maxVal = Math.max(1, ...data.map(value));
+  const maxOut = data.reduce((a,p) => a + outValue(p), 0);
+  const maxIn = data.reduce((a,p) => a + inValue(p), 0);
+  $("#tl-total-out").textContent = useBytes ? fmtBytes(maxOut) : fmtNum(maxOut) + " pkt";
+  $("#tl-total-in").textContent = useBytes ? fmtBytes(maxIn) : fmtNum(maxIn) + " pkt";
+
+  const mk = (tag, attrs, text) => {
+    const el = document.createElementNS(NS, tag);
+    for (const key in attrs) el.setAttribute(key, attrs[key]);
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  if (!data.length) {
+    svg.appendChild(mk("text", {x:W/2, y:H/2, "text-anchor":"middle", class:"tl-axis"}, "No timeline data"));
+    return;
+  }
+  const x = (i) => L + (data.length === 1 ? plotW/2 : (i / (data.length - 1)) * plotW);
+  const y = (v) => T + plotH - (v / maxVal) * plotH;
+
+  for (let tick = 0; tick <= 4; tick++) {
+    const v = maxVal * tick / 4;
+    const yy = y(v);
+    svg.appendChild(mk("line", {x1:L, x2:W-R, y1:yy, y2:yy, class:"tl-grid"}));
+    svg.appendChild(mk("text", {x:L-8, y:yy+3, "text-anchor":"end", class:"tl-axis"},
+      useBytes ? fmtBytes(v) : fmtNum(v)));
+  }
+
+  const makePath = (getter) => {
+    let d = "";
+    data.forEach((p, i) => { d += (i ? "L" : "M") + x(i).toFixed(1) + " " + y(getter(p)).toFixed(1); });
+    return d;
+  };
+  const makeArea = (getter) => {
+    let d = `M${x(0).toFixed(1)} ${(T+plotH).toFixed(1)}`;
+    data.forEach((p, i) => { d += "L" + x(i).toFixed(1) + " " + y(getter(p)).toFixed(1); });
+    d += `L${x(data.length-1).toFixed(1)} ${(T+plotH).toFixed(1)}Z`;
+    return d;
+  };
+  svg.appendChild(mk("path", {d:makeArea((p)=>(outValue(p)+inValue(p))), class:"tl-out-area"}));
+  svg.appendChild(mk("path", {d:makePath(outValue), class:"tl-out"}));
+  svg.appendChild(mk("path", {d:makePath(inValue), class:"tl-in"}));
+
+  const labelEvery = Math.max(1, Math.ceil(data.length / 7));
+  data.forEach((p, i) => {
+    if (i % labelEvery && i !== data.length - 1) return;
+    svg.appendChild(mk("text", {x:x(i), y:H-8, "text-anchor":i===0?"start":(i===data.length-1?"end":"middle"), class:"tl-axis"},
+      fmtTime(p[0])));
+  });
+
+  const cursor = mk("line", {x1:0, x2:0, y1:T, y2:T+plotH, class:"tl-cursor", style:"opacity:0"});
+  svg.appendChild(cursor);
+  const overlay = mk("rect", {x:L, y:T, width:plotW, height:plotH, fill:"transparent", style:"cursor:crosshair"});
+  svg.appendChild(overlay);
+  const tip = $("#tooltip");
+  overlay.addEventListener("pointermove", (event) => {
+    const rect = svg.getBoundingClientRect();
+    const rel = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1,rect.width)));
+    const idx = Math.max(0, Math.min(data.length - 1, Math.round(rel * (data.length - 1))));
+    const p = data[idx];
+    cursor.setAttribute("x1", x(idx)); cursor.setAttribute("x2", x(idx));
+    cursor.style.opacity = 1;
+    tip.innerHTML = `<b>${esc(fmtTime(p[0], true))} UTC</b><br>` +
+      `out ${useBytes ? fmtBytes(p[3]) : fmtNum(p[1]) + " pkt"}<br>` +
+      `in ${useBytes ? fmtBytes(p[4]) : fmtNum(p[2]) + " pkt"}` +
+      (REPORT.timeline.bucket_seconds > 60 ? `<br><span class="muted">per ${fmtDur(REPORT.timeline.bucket_seconds)} bucket</span>` : "");
+    tip.style.opacity = 1;
+    moveTip(event);
+  });
+  overlay.addEventListener("pointerleave", () => { cursor.style.opacity = 0; tip.style.opacity = 0; });
+}
+function initTimeline(){
+  $("#tl-metric").addEventListener("change", (e) => { timelineMetric = e.target.value; drawTimeline(); });
+}
+
+// ---------------------------------------------------------------- bars / donut
+function renderBars(el, rows, opts){
+  opts = opts || {};
+  if (!rows || !rows.length) { el.innerHTML = '<div class="empty">No data</div>'; return; }
+  const max = Math.max(1, ...rows.map(r => Number(r.count || 0)));
+  el.innerHTML = rows.map((row) => {
+    const label = opts.label ? opts.label(row) : row.name;
+    const title = opts.title ? opts.title(row) : label;
+    return `<div class="bar-row"><div class="name" title="${esc(title)}">${esc(label)}</div>
+      <div class="track"><div class="fill" style="width:${(Number(row.count||0)/max*100).toFixed(1)}%"></div></div>
+      <div class="val">${fmtNum(row.count)}</div></div>`;
+  }).join("");
+}
+function drawDonut(){
+  const rows = (REPORT.charts && REPORT.charts.categories) || [];
+  const el = $("#category-donut");
+  if (!rows.length) { el.innerHTML = '<div class="empty">No domain categories</div>'; return; }
+  const total = rows.reduce((a,r) => a + Number(r.count||0), 0) || 1;
+  let acc = 0;
+  const stops = rows.map((row) => {
+    const from = acc / total * 360;
+    acc += Number(row.count||0);
+    const to = acc / total * 360;
+    return `${categoryColour(row.name)} ${from.toFixed(2)}deg ${to.toFixed(2)}deg`;
+  });
+  el.innerHTML = `<div class="donut-wrap">
+    <div class="donut" style="background:conic-gradient(${stops.join(",")})">
+      <div class="hole"><div><b>${fmtNum(REPORT.summary.domains)}</b><span>domains</span></div></div>
+    </div>
+    <div class="legend">${rows.map(row =>
+      `<div class="row"><span class="name"><i class="dotc" style="background:${categoryColour(row.name)}"></i>${esc(row.name)}</span><b>${fmtNum(row.count)}</b></div>`
+    ).join("")}</div></div>`;
+}
+function drawCharts(){
+  const charts = REPORT.charts || {};
+  renderBars($("#protocol-bars"), charts.protocols || []);
+  renderBars($("#country-bars"), charts.countries || []);
+  renderBars($("#provider-bars"), charts.providers || []);
+  const ports = (charts.ports || []).map(p => ({name:p.name + " · " + (p.service || ""), count:p.count}));
+  renderBars($("#port-bars"), ports);
+  drawDonut();
+}
+
+// ---------------------------------------------------------------- findings
+function severityPill(sev){
+  return `<span class="pill ${esc(sev)}">${esc(sev)}</span>`;
+}
+function findingMeta(f){
+  const bits = [];
+  if (f.confidence) bits.push(f.confidence + " confidence");
+  if (f.ips && f.ips.length) bits.push(f.ips.length + " IP" + (f.ips.length>1?"s":""));
+  if (f.domains && f.domains.length) bits.push(f.domains.length + " domain" + (f.domains.length>1?"s":""));
+  if (typeof f.score === "number") bits.push("score " + f.score.toFixed(2));
+  return bits.join(" · ");
+}
+function findingCard(f, index, compact){
+  return `<div class="finding" data-finding="${index}" role="button" tabindex="0"
+      style="border-left-color:${SEV_COLOURS[f.severity] || "var(--muted)"}">
+    <div class="ft">${severityPill(f.severity)} <span>${esc(f.title)}</span></div>
+    <div class="fd">${esc(f.detail)}</div>
+    ${compact ? "" : `<div class="fm">${esc(findingMeta(f))}</div>`}
+  </div>`;
+}
+function fillKeyFindings(){
+  const list = $("#key-findings");
+  const findings = REPORT.findings || [];
+  $("#findings-badge").textContent = findings.length;
+  if (!findings.length) {
+    list.innerHTML = '<div class="empty">No findings above the configured thresholds.<br>That is not a proof of safety.</div>';
+    return;
+  }
+  list.innerHTML = findings.slice(0, 6).map((f, i) => findingCard(f, i, true)).join("");
+  $$("#key-findings .finding").forEach((el) => {
+    const open = () => openFinding(Number(el.dataset.finding));
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  });
+}
+let findingSeverity = "", findingQuery = "";
+function filteredFindings(){
+  const q = findingQuery.toLowerCase();
+  return (REPORT.findings || []).filter((f) => {
+    if (findingSeverity && f.severity !== findingSeverity) return false;
+    if (!q) return true;
+    return [f.title, f.detail, f.id, ...(f.ips||[]), ...(f.domains||[])]
+      .join(" ").toLowerCase().includes(q);
+  });
+}
+function drawFindingsTab(){
+  const rows = filteredFindings();
+  $("#findings-total").textContent = (REPORT.findings||[]).length + " total";
+  const grid = $("#findings-grid");
+  if (!rows.length) { grid.innerHTML = '<div class="empty">No findings match this filter.</div>'; return; }
+  grid.innerHTML = rows.slice(0, 200).map((f, i) => findingCard(f, i, false)).join("");
+  $$("#findings-grid .finding").forEach((el) => {
+    const open = () => {
+      const f = rows[Number(el.dataset.finding)];
+      const realIndex = (REPORT.findings||[]).indexOf(f);
+      openFinding(realIndex);
+    };
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  });
+}
+function initFindings(){
+  $$("#severity-filters button").forEach(btn => btn.addEventListener("click", () => {
+    $$("#severity-filters button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    findingSeverity = btn.dataset.sev;
+    drawFindingsTab();
+  }));
+  $("#finding-search").addEventListener("input", (e) => { findingQuery = e.target.value; drawFindingsTab(); });
+}
+
+// ---------------------------------------------------------------- tables
+const PAGE_SIZE = 50;
+const tables = {
+  destinations: {data:[], filtered:[], page:0, sort:{key:"bytes", asc:false}, query:"", risk:"", country:""},
+  domains: {data:[], filtered:[], page:0, sort:{key:"hits", asc:false}, query:"", category:""},
+  dns: {data:[], filtered:[], page:0, sort:{key:"count", asc:false}, query:"", type:""},
+  flows: {data:[], filtered:[], page:0, sort:{key:"bytes", asc:false}, query:""},
+};
+function decorateDestinations(){
+  return (REPORT.destinations || []).map(d => ({
+    ...d,
+    country: (d.geo && (d.geo.country || "Unknown")) || "Unknown",
+    city: (d.geo && d.geo.city) || "",
+    isp: (d.geo && (d.geo.isp || d.geo.org)) || "Unknown",
+    asn: (d.geo && d.geo.asn) || "",
+    domainNames: (d.domains || []).map(x => x.name),
+    portNames: (d.ports || []).map(p => p.port + " " + p.service),
+    vtmal: (d.vt && d.vt.malicious) || 0,
+  }));
+}
+function sortValues(row, key){
+  if (key === "vt") return (row.vt && row.vt.malicious) ?? -1;
+  if (key === "sources") return Object.values(row.sources||{}).reduce((a,b)=>a+Number(b||0),0);
+  if (key === "ips") return Object.keys(row.ips||{}).length;
+  if (key === "domains") return (row.domainNames||row.domains||[]).length;
+  if (key === "risk") return {malicious:5,suspicious:4,tor:3,unknown:2,clean:1}[row.risk] || 0;
+  const v = row[key];
+  return typeof v === "string" ? v.toLowerCase() : (v ?? 0);
+}
+function applySortFilter(name){
+  const t = tables[name];
+  const q = t.query.toLowerCase();
+  let rows = t.data.filter((row) => {
+    if (name === "destinations") {
+      if (t.risk && row.risk !== t.risk) return false;
+      if (t.country && row.country !== t.country) return false;
+      return !q || [row.ip,row.country,row.city,row.isp,row.asn,row.rdns,row.category,row.risk,...row.domainNames].join(" ").toLowerCase().includes(q);
+    }
+    if (name === "domains") {
+      if (t.category && row.category !== t.category) return false;
+      return !q || [row.domain,row.base,row.category,...Object.keys(row.ips||{})].join(" ").toLowerCase().includes(q);
+    }
+    if (name === "dns") {
+      if (t.type && row.qtype !== t.type) return false;
+      return !q || [row.qname,row.base,row.qtype,...(row.answers||[]),...(row.clients||[])].join(" ").toLowerCase().includes(q);
+    }
+    if (name === "flows") {
+      return !q || [row.client,row.dst,row.service,row.proto,row.dport,...(row.domains||[])].join(" ").toLowerCase().includes(q);
+    }
+    return true;
+  });
+  const key = t.sort.key;
+  rows.sort((a,b) => {
+    const va = sortValues(a,key), vb = sortValues(b,key);
+    let cmp;
+    if (typeof va === "string" || typeof vb === "string") cmp = String(va).localeCompare(String(vb));
+    else cmp = Number(va) - Number(vb);
+    return t.sort.asc ? cmp : -cmp;
+  });
+  t.filtered = rows;
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  t.page = Math.min(t.page, pages - 1);
+}
+function pager(name){
+  const t = tables[name];
+  const pages = Math.max(1, Math.ceil(t.filtered.length / PAGE_SIZE));
+  const label = $(`#${name === "destinations" ? "dest" : name === "domains" ? "dom" : name}-page-label`);
+  if (label) label.textContent = `Page ${t.page + 1} / ${pages} · ${fmtNum(t.filtered.length)} rows`;
+  const prev = $(`#${name === "destinations" ? "dest" : name === "domains" ? "dom" : name}-prev`);
+  const next = $(`#${name === "destinations" ? "dest" : name === "domains" ? "dom" : name}-next`);
+  if (prev) prev.disabled = t.page <= 0;
+  if (next) next.disabled = t.page >= pages - 1;
+}
+function pageRows(name){
+  const t = tables[name];
+  return t.filtered.slice(t.page * PAGE_SIZE, (t.page + 1) * PAGE_SIZE);
+}
+function riskPill(risk){
+  return `<span class="pill risk-${esc(risk)}">${esc(risk)}</span>`;
+}
+function vtPill(vt){
+  if (!vt || (vt.malicious === null || vt.malicious === undefined)) {
+    if (vt && vt.not_found) return '<span class="pill risk-unknown">no record</span>';
+    if (vt && vt.error) return '<span class="pill risk-unknown">error</span>';
+    return '<span class="pill risk-unknown">not checked</span>';
+  }
+  if (Number(vt.malicious) > 0) return `<span class="pill risk-malicious">${Number(vt.malicious)} malicious</span>`;
+  if (Number(vt.suspicious) > 0) return `<span class="pill risk-suspicious">${Number(vt.suspicious)} suspicious</span>`;
+  return '<span class="pill risk-clean">clean</span>';
+}
+function domainsCell(names){
+  if (!names || !names.length) return '<span class="muted">–</span>';
+  const first = names.slice(0, 2);
+  return `<div class="hostnames">${first.map(n => `<span class="hn" title="${esc(n)}">${esc(n)}</span>`).join("<br>")}
+    ${names.length > 2 ? `<span class="muted" title="${esc(names.join(", "))}">+${names.length-2} more</span>` : ""}</div>`;
+}
+function drawDestinations(){
+  applySortFilter("destinations");
+  const rows = pageRows("destinations");
+  const tbody = $("#dest-table tbody");
+  tbody.innerHTML = rows.map((row, i) => {
+    const globalIndex = tables.destinations.data.indexOf(row);
+    return `<tr class="click" data-index="${globalIndex}">
+      <td class="mono">${esc(row.ip)}</td>
+      <td>${esc([row.city,row.country].filter(Boolean).join(", ") || "–")}</td>
+      <td>${esc(row.isp)}${row.asn ? `<br><span class="muted">${esc(row.asn)}</span>` : ""}</td>
+      <td>${domainsCell(row.domainNames)}</td>
+      <td class="num">${fmtBytes(row.bytes)}<br><span class="muted">${fmtNum(row.packets)} pkt</span></td>
+      <td>${riskPill(row.risk)}</td>
+      <td class="nowrap">${esc(fmtTime(row.last_seen))}</td>
+    </tr>`;
+  }).join("");
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="7" class="empty">No destinations match this filter.</td></tr>';
+  $$("#dest-table tbody tr.click").forEach(tr => tr.addEventListener("click", () => openDestination(Number(tr.dataset.index))));
+  $("#dest-total").textContent = fmtNum(tables.destinations.data.length) + " total";
+  pager("destinations");
+}
+function drawDomains(){
+  applySortFilter("domains");
+  const rows = pageRows("domains");
+  const tbody = $("#dom-table tbody");
+  tbody.innerHTML = rows.map((row, i) => {
+    const idx = tables.domains.data.indexOf(row);
+    const src = Object.entries(row.sources || {}).map(([k,v]) => k + " " + v).join(" · ") || "–";
+    return `<tr class="click" data-index="${idx}">
+      <td class="mono">${esc(row.domain)}</td>
+      <td><span class="pill" style="background:${categoryColour(row.category)}22;color:${categoryColour(row.category)}">${esc(row.category)}</span></td>
+      <td class="num">${fmtNum(row.hits)}</td>
+      <td>${esc(src)}</td>
+      <td class="num">${fmtNum(Object.keys(row.ips||{}).length)}</td>
+      <td>${vtPill(row.vt)}</td>
+      <td class="nowrap">${esc(fmtTime(row.last_seen))}</td>
+    </tr>`;
+  }).join("");
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="7" class="empty">No domains match this filter.</td></tr>';
+  $$("#dom-table tbody tr.click").forEach(tr => tr.addEventListener("click", () => openDomain(Number(tr.dataset.index))));
+  $("#dom-total").textContent = fmtNum(tables.domains.data.length) + " total";
+  pager("domains");
+}
+function drawDns(){
+  applySortFilter("dns");
+  const rows = pageRows("dns");
+  const tbody = $("#dns-table tbody");
+  const anomalies = new Set(REPORT.dns_anomaly_bases || []);
+  tbody.innerHTML = rows.map((row) => {
+    const flag = anomalies.has(row.base) ? ' <span class="pill risk-suspicious">anomaly</span>' : "";
+    const answers = (row.answers||[]).slice(0,3).map(a => `<span class="mono">${esc(a)}</span>`).join("<br>") || '<span class="muted">–</span>';
+    return `<tr>
+      <td class="mono">${esc(row.qname)}${flag}<br><span class="muted">${esc(row.base)}</span></td>
+      <td>${esc(row.qtype)}</td>
+      <td class="num">${fmtNum(row.count)}</td>
+      <td>${answers}</td>
+      <td class="num">${row.response_ms ? row.response_ms.toFixed(1) + " ms" : "–"}</td>
+      <td class="nowrap">${esc(fmtTime(row.last_seen))}</td>
+    </tr>`;
+  }).join("");
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="6" class="empty">No DNS rows match this filter.</td></tr>';
+  $("#dns-total").textContent = fmtNum(tables.dns.data.length) + " name/type pairs";
+  pager("dns");
+}
+function drawFlows(){
+  applySortFilter("flows");
+  const rows = pageRows("flows");
+  const tbody = $("#flow-table tbody");
+  tbody.innerHTML = rows.map((row, i) => {
+    const idx = tables.flows.data.indexOf(row);
+    return `<tr class="click" data-index="${idx}">
+      <td class="mono">${esc(row.client)}</td>
+      <td class="mono">${esc(row.dst)}</td>
+      <td>${esc(row.service)}<br><span class="muted">:${esc(row.dport)}</span></td>
+      <td>${esc(row.proto)}</td>
+      <td class="num">${fmtNum(row.packets)}</td>
+      <td class="num">${fmtBytes(row.bytes)}</td>
+      <td>${domainsCell(row.domains)}</td>
+      <td class="nowrap">${esc(fmtTime(row.last_seen))}</td>
+    </tr>`;
+  }).join("");
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="8" class="empty">No flows match this filter.</td></tr>';
+  $$("#flow-table tbody tr.click").forEach(tr => tr.addEventListener("click", () => openFlow(Number(tr.dataset.index))));
+  $("#flow-total").textContent = fmtNum(tables.flows.data.length) + (REPORT.flows_total > REPORT.flows.length ? " of " + fmtNum(REPORT.flows_total) : "") + " flows";
+  pager("flows");
+}
+function initTables(){
+  tables.destinations.data = decorateDestinations();
+  tables.domains.data = (REPORT.domains || []).map(d => ({...d, ipCount:Object.keys(d.ips||{}).length}));
+  tables.dns.data = REPORT.dns || [];
+  tables.flows.data = REPORT.flows || [];
+
+  const countrySelect = $("#dest-country");
+  const countries = Array.from(new Set(tables.destinations.data.map(d => d.country))).sort();
+  countries.forEach(c => { const o = document.createElement("option"); o.value = c; o.textContent = c; countrySelect.appendChild(o); });
+  const catSelect = $("#dom-category");
+  Array.from(new Set(tables.domains.data.map(d => d.category))).sort().forEach(c => {
+    const o = document.createElement("option"); o.value = c; o.textContent = c; catSelect.appendChild(o);
+  });
+  const typeSelect = $("#dns-type");
+  Array.from(new Set(tables.dns.data.map(d => d.qtype))).sort().forEach(t => {
+    const o = document.createElement("option"); o.value = t; o.textContent = t; typeSelect.appendChild(o);
+  });
+
+  $("#dest-search").addEventListener("input", e => { tables.destinations.query = e.target.value; tables.destinations.page = 0; drawDestinations(); });
+  $("#dest-risk").addEventListener("change", e => { tables.destinations.risk = e.target.value; tables.destinations.page = 0; drawDestinations(); });
+  $("#dest-country").addEventListener("change", e => { tables.destinations.country = e.target.value; tables.destinations.page = 0; drawDestinations(); });
+  $("#dom-search").addEventListener("input", e => { tables.domains.query = e.target.value; tables.domains.page = 0; drawDomains(); });
+  $("#dom-category").addEventListener("change", e => { tables.domains.category = e.target.value; tables.domains.page = 0; drawDomains(); });
+  $("#dns-search").addEventListener("input", e => { tables.dns.query = e.target.value; tables.dns.page = 0; drawDns(); });
+  $("#dns-type").addEventListener("change", e => { tables.dns.type = e.target.value; tables.dns.page = 0; drawDns(); });
+  $("#flow-search").addEventListener("input", e => { tables.flows.query = e.target.value; tables.flows.page = 0; drawFlows(); });
+
+  bindHeaderSort("#dest-table", "destinations", drawDestinations);
+  bindHeaderSort("#dom-table", "domains", drawDomains);
+  bindHeaderSort("#dns-table", "dns", drawDns);
+  bindHeaderSort("#flow-table", "flows", drawFlows);
+
+  bindPager("dest", "destinations", drawDestinations);
+  bindPager("dom", "domains", drawDomains);
+  bindPager("dns", "dns", drawDns);
+  bindPager("flow", "flows", drawFlows);
+}
+function bindHeaderSort(tableSel, name, draw){
+  $$(tableSel + " thead th").forEach(th => th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (!key) return;
+    const t = tables[name];
+    t.sort.asc = t.sort.key === key ? !t.sort.asc : false;
+    t.sort.key = key; t.page = 0; draw();
+  }));
+}
+function bindPager(prefix, name, draw){
+  const prev = $("#" + prefix + "-prev"), next = $("#" + prefix + "-next");
+  if (prev) prev.addEventListener("click", () => { tables[name].page = Math.max(0, tables[name].page - 1); draw(); });
+  if (next) next.addEventListener("click", () => { tables[name].page += 1; draw(); });
+}
+
+// ---------------------------------------------------------------- modal
+let lastFocus = null;
+function openModal(title, sub, body){
+  lastFocus = document.activeElement;
+  $("#modal-title").textContent = title;
+  $("#modal-sub").innerHTML = sub || "";
+  $("#modal-body").innerHTML = body;
+  $("#modal").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  $("#modal-close").focus();
+}
+function closeModal(){
+  $("#modal").classList.add("hidden");
+  document.body.style.overflow = "";
+  if (lastFocus && lastFocus.focus) lastFocus.focus();
+}
+function kvRows(rows){
+  return `<dl class="kv">${rows.filter(r => r && r[1] !== undefined && r[1] !== null && r[1] !== "")
+    .map(r => `<dt>${esc(r[0])}</dt><dd>${r[2] ? r[1] : esc(r[1])}</dd>`).join("")}</dl>`;
+}
+function actionLinks(dest){
+  const actions = [];
+  const vt = `https://www.virustotal.com/gui/ip-address/${encodeURIComponent(dest.ip)}`;
+  actions.push(`<a class="btn" target="_blank" rel="noopener noreferrer" href="${esc(vt)}">VirusTotal report</a>`);
+  if (dest.geo && Number.isFinite(Number(dest.geo.lat)) && Number.isFinite(Number(dest.geo.lon))) {
+    const lat = encodeURIComponent(dest.geo.lat), lon = encodeURIComponent(dest.geo.lon);
+    actions.push(`<a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=6/${lat}/${lon}">OpenStreetMap</a>`);
+  }
+  if (dest.rdap && dest.rdap.name) {
+    const rdap = `https://rdap.org/ip/${encodeURIComponent(dest.ip)}`;
+    actions.push(`<a class="btn sec" target="_blank" rel="noopener noreferrer" href="${esc(rdap)}">RDAP record</a>`);
+  }
+  return `<div class="modal-actions">${actions.join("")}</div>`;
+}
+function openDestination(index){
+  const d = (REPORT.destinations || [])[index];
+  if (!d) return;
+  const geo = d.geo || {}, vt = d.vt || {}, rdap = d.rdap || {};
+  const sub = [esc(d.ip), esc([geo.city, geo.region, geo.country].filter(Boolean).join(", ") || "Unknown location")].join(" · ");
+  let banner = `<div class="banner ${esc(d.risk)}">`;
+  if (d.risk === "malicious") banner += `⚠ Flagged by VirusTotal: ${Number(vt.malicious)} malicious engine(s)`;
+  else if (d.risk === "suspicious") banner += `VirusTotal: ${Number(vt.suspicious)} suspicious engine(s)`;
+  else if (d.risk === "tor") banner += "Known Tor exit node";
+  else if (d.risk === "clean") banner += "VirusTotal: no malicious detections";
+  else banner += "VirusTotal: not checked / no record";
+  banner += "</div>";
+  const domains = (d.domains || []).map(x => `<span class="chip">${esc(x.name)} <b>${fmtNum(x.hits)}</b> <span class="muted">${esc(x.category)}</span></span>`).join("") || '<span class="muted">No hostname observed</span>';
+  const ports = (d.ports || []).map(p => `<span class="chip">${esc(p.port)} · ${esc(p.service)} <b>${fmtNum(p.count)}</b></span>`).join("") || '<span class="muted">–</span>';
+  const clients = Object.entries(d.clients || {}).map(([ip,n]) => `<span class="chip">${esc(ip)} <b>${fmtNum(n)}</b></span>`).join("") || '<span class="muted">–</span>';
+  const ja4 = Object.entries(d.ja4 || {}).map(([fp,n]) => `<div class="mono" style="font-size:11px">${esc(fp)} <span class="muted">×${n}</span></div>`).join("") || '<span class="muted">–</span>';
+  const body = banner +
+    kvRows([
+      ["Provider", geo.isp || geo.org || "–"],
+      ["ASN", geo.asn || "–"],
+      ["Network", rdap.name ? rdap.name + (rdap.range ? " (" + rdap.range + ")" : "") : "–"],
+      ["rDNS", d.rdns || "–"],
+      ["Country", geo.country || "–"],
+      ["City", [geo.city, geo.region].filter(Boolean).join(", ") || "–"],
+      ["Coordinates", (geo.lat !== null && geo.lat !== undefined) ? geo.lat + ", " + geo.lon : "–"],
+      ["Packets", fmtNum(d.packets) + " (" + fmtNum(d.packets_out) + " out / " + fmtNum(d.packets_in) + " in)"],
+      ["Bytes", fmtBytes(d.bytes) + " (" + fmtBytes(d.bytes_out) + " out / " + fmtBytes(d.bytes_in) + " in)"],
+      ["Retransmissions", fmtNum(d.retransmissions || 0)],
+      ["First seen", fmtTime(d.first_seen, true) + " UTC"],
+      ["Last seen", fmtTime(d.last_seen, true) + " UTC"],
+      ["TLS versions", Object.keys(d.tls_versions||{}).join(", ") || "–"],
+      ["ALPN", Object.keys(d.alpn||{}).join(", ") || "–"],
+    ]) +
+    `<div class="section-title">Hostnames (${(d.domains||[]).length})</div><div class="chips">${domains}</div>` +
+    `<div class="section-title">Services</div><div class="chips">${ports}</div>` +
+    `<div class="section-title">Clients</div><div class="chips">${clients}</div>` +
+    `<div class="section-title">JA4 fingerprints</div><div>${ja4}</div>` +
+    actionLinks(d);
+  openModal(d.ip, sub, body);
+}
+function openDomain(index){
+  const d = (REPORT.domains || [])[index];
+  if (!d) return;
+  const sources = Object.entries(d.sources||{}).map(([k,v]) => `<span class="chip">${esc(k)} <b>${fmtNum(v)}</b></span>`).join("") || "–";
+  const ips = Object.keys(d.ips||{}).map(ip => `<span class="chip mono">${esc(ip)}</span>`).join("") || '<span class="muted">No IP mapping</span>';
+  const clients = Object.keys(d.clients||{}).map(ip => `<span class="chip mono">${esc(ip)}</span>`).join("") || '<span class="muted">–</span>';
+  const src = [d.sources && d.sources.sni ? "SNI" : "", d.sources && d.sources.http ? "HTTP Host" : "", d.sources && d.sources.dns ? "DNS" : ""].filter(Boolean).join(", ") || "–";
+  const body = `<div class="banner ${d.category === "Ads / tracking" ? "suspicious" : "unknown"}">${esc(d.category)}</div>` +
+    kvRows([
+      ["Base domain", d.base || "–"],
+      ["Hits", fmtNum(d.hits)],
+      ["Observed via", src],
+      ["First seen", fmtTime(d.first_seen, true) + " UTC"],
+      ["Last seen", fmtTime(d.last_seen, true) + " UTC"],
+      ["VirusTotal", d.vt && d.vt.malicious !== undefined ? (d.vt.malicious + " malicious / " + (d.vt.suspicious||0) + " suspicious") : "not checked"],
+    ]) +
+    `<div class="section-title">Sources</div><div class="chips">${sources}</div>` +
+    `<div class="section-title">Resolved / contacted IPs</div><div class="chips">${ips}</div>` +
+    `<div class="section-title">Clients</div><div class="chips">${clients}</div>`;
+  openModal(d.domain, esc(d.category), body);
+}
+function openFlow(index){
+  const f = (REPORT.flows || [])[index];
+  if (!f) return;
+  const body = kvRows([
+    ["Client", f.client], ["Destination", f.dst], ["Service", f.service + " :" + f.dport],
+    ["Protocol", f.proto], ["Packets", fmtNum(f.packets) + " (" + fmtNum(f.packets_out) + " out / " + fmtNum(f.packets_in) + " in)"],
+    ["Bytes", fmtBytes(f.bytes) + " (" + fmtBytes(f.bytes_out) + " out / " + fmtBytes(f.bytes_in) + " in)"],
+    ["JA4", f.ja4 || "–"],
+    ["First seen", fmtTime(f.first_seen, true) + " UTC"], ["Last seen", fmtTime(f.last_seen, true) + " UTC"],
+  ]) + `<div class="section-title">Hostnames</div><div class="chips">${(f.domains||[]).map(x => `<span class="chip">${esc(x)}</span>`).join("") || '<span class="muted">–</span>'}</div>`;
+  openModal(f.client + " → " + f.dst, esc(f.service), body);
+}
+function openFinding(index){
+  const f = (REPORT.findings || [])[index];
+  if (!f) return;
+  const body = `<div class="banner ${f.severity === "critical" ? "malicious" : f.severity === "high" ? "malicious" : f.severity === "medium" ? "suspicious" : f.severity === "low" ? "unknown" : "clean"}">
+      ${esc(f.confidence)} confidence · score ${Number(f.score||0).toFixed(2)}</div>` +
+    `<p style="margin:0 0 12px">${esc(f.detail)}</p>` +
+    (f.ips && f.ips.length ? `<div class="section-title">IPs</div><div class="chips">${f.ips.map(ip => `<span class="chip mono">${esc(ip)}</span>`).join("")}</div>` : "") +
+    (f.domains && f.domains.length ? `<div class="section-title">Domains</div><div class="chips">${f.domains.map(d => `<span class="chip">${esc(d)}</span>`).join("")}</div>` : "") +
+    (f.evidence && Object.keys(f.evidence).length ? `<div class="section-title">Evidence</div><pre class="evidence">${esc(JSON.stringify(f.evidence, null, 2))}</pre>` : "");
+  openModal(f.title, severityPill(f.severity) + " · " + esc(f.id), body);
+}
+function initModal(){
+  $("#modal-close").addEventListener("click", closeModal);
+  $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("#modal").classList.contains("hidden")) closeModal();
+    if (e.key === "/" && document.activeElement && !["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      const input = $(".tab-section:not(.hidden) input[type=search]") || $("#dest-search");
+      if (input) input.focus();
+    }
+  });
+}
+
+// ---------------------------------------------------------------- about
+function renderAbout(){
+  const m = REPORT.meta || {}, s = REPORT.summary || {};
+  const captureRows = [
+    ["Capture", m.file || m.name || "–"], ["Path", m.source || m.path || "–"], ["SHA-256", m.sha256 || "–"],
+    ["Size", (m.size_bytes || m.size) ? fmtBytes(m.size_bytes || m.size) : "–"],
+    ["Window", rangeText(m.first_seen, m.last_seen) || "–"],
+    ["Duration", fmtDur(m.duration)],
+    ["Packets", fmtNum(m.packets) + " total / " + fmtNum(m.analyzed_packets) + " analyzed"],
+    ["Traffic", fmtBytes(m.bytes) + " total / " + fmtBytes(m.analyzed_bytes) + " analyzed"],
+    ["Mode", m.mode || "–"], ["Target", m.target || "–"], ["tshark", m.tshark_version || m.tshark || "–"],
+    ["Generated", (m.generated_iso || "") + " UTC"], ["Tool", "SNItch " + (m.version || "")],
+  ];
+  // Long values need their own row; use a dedicated hash block for readability.
+  $("#about-capture").innerHTML = kvRows(captureRows.filter(r => r[0] !== "SHA-256")) +
+    `<div class="section-title">SHA-256</div><div class="mono" style="font-size:11px;overflow-wrap:anywhere">${esc(m.sha256 || "–")}</div>`;
+
+  const enr = m.enrichment || {};
+  const geo = enr.geo || {}, vt = enr.vt || {};
+  const configRows = [
+    ["Geolocation", enr.offline ? "offline" : (geo.cached||0) + " cached / " + (geo.looked_up||0) + " looked up"],
+    ["Reverse DNS", enr.rdns ? ((enr.rdns.cached||0) + " cached / " + (enr.rdns.looked_up||0) + " found") : "disabled"],
+    ["RDAP", enr.rdap ? ((enr.rdap.looked_up||0) + " looked up") : "disabled"],
+    ["VirusTotal", vt.available ? ((vt.cached||0) + " cached / " + (vt.queried||0) + " queried") : "no API key"],
+    ["Tor exits", enr.tor_exits ? ((enr.tor_exits.matched||0) + " matched") : "disabled"],
+    ["Elapsed", enr.elapsed_seconds !== undefined ? enr.elapsed_seconds + "s" : "–"],
+    ["Findings limit", "dashboard shows up to 500"],
+    ["DNS / flow rows", (REPORT.dns_total||0) + " DNS pairs / " + (REPORT.flows_total||0) + " flows captured"],
+  ];
+  const h = m.heuristics || {};
+  if (Object.keys(h).length) {
+    configRows.push(["Heuristic thresholds",
+      h.beacon_min_events + " beacon events, " + fmtBytes(h.exfil_min_bytes) +
+      " upload, " + h.dns_min_unique + " DNS names, " + h.scan_min_ports + " ports, " +
+      h.tor_max_destinations + " Tor dest."]);
+  }
+  $("#about-config").innerHTML = kvRows(configRows) +
+    `<p class="muted" style="font-size:11px;margin-top:10px">Full data lives in <span class="mono">data/analysis.json</span>, <span class="mono">data/flows.csv</span> and <span class="mono">data/dns.csv</span>.</p>`;
+
+  $("#about-categories").innerHTML = Object.entries(REPORT.category_descriptions || {}).map(([cat, desc]) =>
+    `<div style="margin:0 0 9px"><span class="dotc" style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;background:${categoryColour(cat)}"></span>
+      <b style="font-size:12px">${esc(cat)}</b><div class="muted" style="font-size:11px;margin-left:15px">${esc(desc)}</div></div>`
+  ).join("");
+
+  const warnings = (REPORT.warnings || []).concat(m.warnings || []);
+  const uniqueWarnings = Array.from(new Set(warnings));
+  $("#about-notes").innerHTML = `
+    <p class="muted" style="font-size:12px;margin-top:0">Findings are heuristics and third-party intelligence, not proof of compromise. Verify before acting.
+    Traffic is analysed offline; enrichment only sends the public destination IPs (and optionally domains) to the providers shown here.</p>
+    <div class="section-title">Confidence</div>
+    <p class="muted" style="font-size:12px">“Regularity” compares connection intervals to their median. Low coefficient of variation with many events suggests a beacon.
+    DNS anomalies look for high-entropy labels and TXT/NULL queries; CDNs can trigger low-confidence results.</p>
+    ${uniqueWarnings.length ? `<div class="section-title">Warnings</div><ul class="warnlist">${uniqueWarnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    <div class="section-title">Shortcuts</div>
+    <p class="muted" style="font-size:12px"><span class="kbd">Esc</span> closes dialogs · <span class="kbd">/</span> focuses search · click map dots or table rows for details.</p>`;
+}
+
+// ---------------------------------------------------------------- export
+function download(filename, text, mime){
+  const blob = new Blob([text], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+function slug(){
+  return String((REPORT.meta||{}).name || "snitch").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0,80);
+}
+function initExport(){
+  $("#export-json").addEventListener("click", () =>
+    download("snitch-" + slug() + ".json", JSON.stringify(REPORT, null, 2), "application/json"));
+  $("#export-csv").addEventListener("click", () => {
+    const fields = ["ip","risk","category","country","city","isp","asn","rdns","domains","packets","bytes","bytes_out","bytes_in","last_seen"];
+    const quote = (v) => {
+      if (v === null || v === undefined) return "";
+      const s = String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    };
+    const lines = [fields.join(",")];
+    (REPORT.destinations||[]).forEach(d => {
+      const geo = d.geo||{};
+      lines.push([
+        d.ip, d.risk, d.category, geo.country, geo.city, geo.isp, geo.asn, d.rdns,
+        (d.domains||[]).map(x=>x.name).join("; "),
+        d.packets, d.bytes, d.bytes_out, d.bytes_in, fmtTime(d.last_seen, true)
+      ].map(quote).join(","));
+    });
+    download("snitch-" + slug() + "-destinations.csv", lines.join("\n"), "text/csv");
+  });
+}
+
+// ---------------------------------------------------------------- boot
+function boot(){
+  renderHeader();
+  buildCards();
+  drawMap();
+  initMapZoom();
+  drawTimeline();
+  initTimeline();
+  drawCharts();
+  fillKeyFindings();
+  drawFindingsTab();
+  initFindings();
+  initTables();
+  drawDestinations();
+  drawDomains();
+  drawDns();
+  drawFlows();
+  renderAbout();
+  initTabs();
+  initTheme();
+  initModal();
+  initExport();
+  applyMapView();
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", boot);
+} else {
+  boot();
+}
+</script>
+</body>
+</html>

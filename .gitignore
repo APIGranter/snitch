@@ -9,7 +9,6 @@ snitch.json
 *_2???-??-??_*/
 data/
 domains/
-dashboard.html
 enrichment_cache.json
 ip_cache.json
 cache_ips.json

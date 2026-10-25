@@ -144,6 +144,27 @@ counted in a warning shown on the dashboard and in `summary.txt`; raw
 destinations/domains are still reported normally. Invalid entries fail fast
 with exit code 2.
 
+### Tune heuristic thresholds
+
+The detectors use conservative defaults. Advanced users can adjust them on the
+CLI or in `snitch.json` (underscored keys, e.g. `"beacon_min_events": 8`):
+
+| Option | Default | Effect |
+|---|---|---|
+| `--beacon-min-events N` | 5 | Connections before beaconing is considered. |
+| `--beacon-max-cv RATIO` | 0.50 | Maximum variation of intervals (lower = stricter). |
+| `--beacon-min-interval S` | 5 | Minimum median beacon interval. |
+| `--beacon-max-interval S` | 3600 | Maximum median beacon interval. |
+| `--exfil-min-bytes BYTES` | 5 MiB | Minimum upload volume for exfiltration. |
+| `--exfil-ratio RATIO` | 5 | Upload/download ratio for exfiltration. |
+| `--dns-min-unique N` | 20 | Unique subdomains before a DNS anomaly. |
+| `--scan-min-ports N` | 25 | Ports contacted before a port-scan finding. |
+| `--tor-max-destinations N` | 4 | Destination limit for the Tor-like check. |
+| `--tor-min-bytes BYTES` | 200 KiB | Traffic needed for a Tor-like finding. |
+
+Invalid or non-positive values exit with code 2. Thresholds are also recorded
+in the HTML About page via the report metadata.
+
 ---
 
 ## Output
@@ -266,7 +287,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 95 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 97 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

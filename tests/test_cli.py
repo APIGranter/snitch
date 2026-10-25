@@ -8,10 +8,11 @@ import unittest
 from unittest import mock
 
 from snitchlib.cli import (
-    _apply_config, _client_options, _csv_values, _extract_config_arg,
-    _find_config_path, _load_config, _should_auto_retry, build_parser,
-    read_api_key,
+    _analysis_options, _apply_config, _client_options, _csv_values,
+    _extract_config_arg, _find_config_path, _load_config, _should_auto_retry,
+    build_parser, read_api_key,
 )
+from snitchlib.allowlist import Allowlist
 from snitchlib.extract import ExtractionOptions
 from snitchlib.models import Analysis, Destination
 from snitchlib.util import Logger
@@ -48,6 +49,37 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parser.parse_args(["x.pcap"]).vt_domains, 0)
         self.assertEqual(parser.parse_args(["x.pcap", "--vt-domains"]).vt_domains, 50)
         self.assertEqual(parser.parse_args(["x.pcap", "--vt-domains", "7"]).vt_domains, 7)
+
+    def test_heuristic_threshold_flags(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "x.pcap", "--beacon-min-events", "8", "--beacon-max-cv", "0.3",
+            "--beacon-min-interval", "10", "--beacon-max-interval", "600",
+            "--exfil-min-bytes", "1048576", "--exfil-ratio", "2.5",
+            "--dns-min-unique", "50", "--scan-min-ports", "100",
+            "--tor-max-destinations", "2", "--tor-min-bytes", "4096",
+        ])
+        options = _analysis_options(args, Allowlist.empty())
+        self.assertEqual(options.beacon_min_events, 8)
+        self.assertAlmostEqual(options.beacon_max_cv, 0.3)
+        self.assertAlmostEqual(options.beacon_min_interval, 10.0)
+        self.assertAlmostEqual(options.beacon_max_interval, 600.0)
+        self.assertEqual(options.exfil_min_bytes, 1048576)
+        self.assertAlmostEqual(options.exfil_ratio, 2.5)
+        self.assertEqual(options.dns_min_unique, 50)
+        self.assertEqual(options.scan_min_ports, 100)
+        self.assertEqual(options.tor_max_destinations, 2)
+        self.assertEqual(options.tor_min_bytes, 4096)
+
+    def test_heuristic_defaults_and_invalid_values(self):
+        parser = build_parser()
+        options = _analysis_options(parser.parse_args(["x.pcap"]), Allowlist.empty())
+        self.assertEqual(options.beacon_min_events, 5)
+        self.assertEqual(options.dns_min_unique, 20)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["x.pcap", "--beacon-min-events", "0"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["x.pcap", "--exfil-ratio", "-1"])
 
 
 class ConfigTests(unittest.TestCase):

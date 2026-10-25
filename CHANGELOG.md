@@ -24,6 +24,9 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Automatic fallback to `--auto-clients` when the default Windows-hotspot
   filter matches no clients (with a warning); explicit network options disable
   the fallback.
+- CLI/config thresholds for every heuristic
+  (`--beacon-min-events`, `--exfil-min-bytes`, `--dns-min-unique`,
+  `--scan-min-ports`, `--tor-*`, …) with positive-value validation.
 - Enrichment: concurrent geolocation/rDNS/RDAP, optional VirusTotal domain
   checks (`--vt-domains`), Tor exit-node checks, `--offline`, `--refresh`,
   `--no-cache`, configurable `--workers`.
@@ -41,7 +44,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 95 unit/integration tests (no tshark or network required).
+- 97 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed
@@ -55,6 +58,8 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 
 ### Fixed
 
+- `.gitignore` no longer excludes the bundled dashboard template, which is
+  required in clean clones and CI builds.
 - Wrong dashboard metadata keys (`file`/`source`/`size_bytes`/`tshark_version`)
   and missing `dport` in flow search.
 - Malformed newline when writing cached VirusTotal results.

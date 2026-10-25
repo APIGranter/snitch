@@ -79,7 +79,25 @@ DEFAULTS: Dict[str, Any] = {
     "until": None,
     "display_filter": "",
     "config": None,
+    "beacon_min_events": None,
+    "beacon_max_cv": None,
+    "beacon_min_interval": None,
+    "beacon_max_interval": None,
+    "exfil_min_bytes": None,
+    "exfil_ratio": None,
+    "dns_min_unique": None,
+    "scan_min_ports": None,
+    "tor_max_destinations": None,
+    "tor_min_bytes": None,
 }
+
+
+#: Thresholds exposed on the CLI/config and mapped onto AnalysisOptions.
+HEURISTIC_FIELDS = (
+    "beacon_min_events", "beacon_max_cv", "beacon_min_interval",
+    "beacon_max_interval", "exfil_min_bytes", "exfil_ratio", "dns_min_unique",
+    "scan_min_ports", "tor_max_destinations", "tor_min_bytes",
+)
 
 
 # --------------------------------------------------------------------------
@@ -104,6 +122,20 @@ def _as_bool(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return str(value).strip().lower() in ("1", "true", "yes", "on", "y")
+
+
+def _positive_int(value: Any) -> int:
+    number = int(value)
+    if number < 1:
+        raise ValueError("must be at least 1")
+    return number
+
+
+def _positive_float(value: Any) -> float:
+    number = float(value)
+    if number <= 0:
+        raise ValueError("must be greater than 0")
+    return number
 
 
 def _unique_dir(path: str) -> str:
@@ -345,6 +377,29 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_group.add_argument("--workers", type=int, default=8, metavar="N",
                               help="Concurrent workers for geo/rDNS/RDAP (default: 8).")
 
+    # --- heuristic thresholds ---------------------------------------------
+    heuristics = parser.add_argument_group("heuristic thresholds (advanced)")
+    heuristics.add_argument("--beacon-min-events", type=_positive_int, default=None,
+                            metavar="N", help="Minimum connections before flagging beaconing (default: 5).")
+    heuristics.add_argument("--beacon-max-cv", type=_positive_float, default=None,
+                            metavar="RATIO", help="Maximum gap variation for beaconing (default: 0.50).")
+    heuristics.add_argument("--beacon-min-interval", type=_positive_float, default=None,
+                            metavar="SECONDS", help="Minimum median beacon interval (default: 5).")
+    heuristics.add_argument("--beacon-max-interval", type=_positive_float, default=None,
+                            metavar="SECONDS", help="Maximum median beacon interval (default: 3600).")
+    heuristics.add_argument("--exfil-min-bytes", type=_positive_int, default=None,
+                            metavar="BYTES", help="Minimum upload volume for exfil findings (default: 5 MiB).")
+    heuristics.add_argument("--exfil-ratio", type=_positive_float, default=None,
+                            metavar="RATIO", help="Upload/download ratio for exfil findings (default: 5).")
+    heuristics.add_argument("--dns-min-unique", type=_positive_int, default=None,
+                            metavar="N", help="Unique subdomains before a DNS anomaly (default: 20).")
+    heuristics.add_argument("--scan-min-ports", type=_positive_int, default=None,
+                            metavar="N", help="Ports before a port-scan finding (default: 25).")
+    heuristics.add_argument("--tor-max-destinations", type=_positive_int, default=None,
+                            metavar="N", help="Destination limit for the Tor-like check (default: 4).")
+    heuristics.add_argument("--tor-min-bytes", type=_positive_int, default=None,
+                            metavar="BYTES", help="Traffic needed for a Tor-like finding (default: 200 KiB).")
+
     # --- output -----------------------------------------------------------
     output = parser.add_argument_group("output")
     output.add_argument("--out-dir", default="", metavar="DIR",
@@ -413,6 +468,30 @@ def _client_options(args: argparse.Namespace) -> ExtractionOptions:
     )
 
 
+def _analysis_options(args: argparse.Namespace,
+                      allowlist: Allowlist) -> AnalysisOptions:
+    """Build AnalysisOptions from the CLI/config overrides."""
+    overrides = {
+        name: getattr(args, name)
+        for name in HEURISTIC_FIELDS
+        if getattr(args, name, None) is not None
+    }
+    options = AnalysisOptions(target=normalize_target(args.target),
+                              allowlist=allowlist)
+    return replace(options, **overrides) if overrides else options
+
+
+def _heuristic_meta(args: argparse.Namespace) -> Dict[str, Any]:
+    """Effective heuristic thresholds for the report metadata."""
+    defaults = AnalysisOptions()
+    return {
+        name: (getattr(args, name)
+               if getattr(args, name, None) is not None
+               else getattr(defaults, name))
+        for name in HEURISTIC_FIELDS
+    }
+
+
 def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
                   display_name: str, display_filter: str, live: bool,
                   interface: str = "") -> Dict[str, Any]:
@@ -434,6 +513,7 @@ def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
         "until": iso_utc(args.until),
         "live_interface": interface,
         "packet_limit": args.packet_limit,
+        "heuristics": _heuristic_meta(args),
     }
     if not live:
         try:
@@ -675,8 +755,7 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         analysis.capture["allowlist_source"] = allowlist.source
 
     apply_categories(analysis, args.target)
-    run_heuristics(analysis, AnalysisOptions(target=normalize_target(args.target),
-                                             allowlist=allowlist))
+    run_heuristics(analysis, _analysis_options(args, allowlist))
 
     # --- enrichment -------------------------------------------------------
     base_dir = os.path.abspath(_expand(args.out_dir) or base_output_dir())
