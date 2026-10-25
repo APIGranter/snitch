@@ -1084,7 +1084,9 @@ function initFindings(){
   });
   const category = $("#finding-category");
   if (category) {
-    const ids = Array.from(new Set(findingRows().map(f => f.id).filter(Boolean))).sort();
+    const ids = Array.from(new Set(
+      (REPORT.findings || []).concat(REPORT.suppressed || []).map(f => f.id).filter(Boolean)
+    )).sort();
     ids.forEach(id => {
       const option = document.createElement("option");
       option.value = id;
