@@ -6,10 +6,13 @@ import os
 import tempfile
 import unittest
 from collections import Counter
+from unittest import mock
 
+import snitchlib.report as report_module
 from snitchlib.models import Analysis, ClientStat, Destination, DNSQueryStat, DomainStat, Finding, Flow
 from snitchlib.report import (
     build_dashboard, build_report, legacy_records, save_all, save_destinations_csv,
+    save_findings_csv,
 )
 from snitchlib.util import Logger
 
@@ -72,6 +75,7 @@ def sample_analysis():
         id="test_finding", severity="medium", title="Test finding",
         detail="Something to see", score=0.5, confidence="high",
         ips=[dest.ip], domains=["www.example.com"],
+        remediation="Investigate the endpoint.", mitre=["T1046 Network Service Discovery"],
     ))
     return analysis
 
@@ -128,6 +132,17 @@ class ReportTests(unittest.TestCase):
                 loaded = json.load(handle)
             self.assertEqual(loaded["summary"]["ips"], 1)
 
+    def test_findings_csv_includes_playbook(self):
+        report = build_report(sample_analysis())
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "findings.csv")
+            save_findings_csv(report, path)
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+        self.assertIn("mitre,remediation", text)
+        self.assertIn("T1046 Network Service Discovery", text)
+        self.assertIn("Investigate the endpoint.", text)
+
     def test_dashboard_escapes_dynamic_values(self):
         analysis = sample_analysis()
         analysis.domains["<script>alert(1)</script>.example.com"] = DomainStat(
@@ -144,8 +159,48 @@ class ReportTests(unittest.TestCase):
         self.assertIn("\\u003cscript\\u003ealert(1)\\u003c/script\\u003e", html)
         self.assertIn('id="map"', html)
         self.assertIn("93.184.216.34", html)
+        self.assertIn("MITRE ATT", html)
+        self.assertIn("T1046 Network Service Discovery", html)
+        self.assertIn("Investigate the endpoint.", html)
         # The bundled GeoJSON must be embedded, not fetched.
         self.assertIn('"type":"FeatureCollection"', html)
+
+    def test_dashboard_is_fully_offline(self):
+        report = build_report(sample_analysis())
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "dashboard.html")
+            build_dashboard(report, out, QUIET)
+            with open(out, encoding="utf-8") as handle:
+                html = handle.read()
+        # No external assets or network calls: everything is inline.
+        for marker in ("<script src=", "<link", "@import", "url(",
+                       "fetch(", "XMLHttpRequest", "<img", "<iframe"):
+            self.assertNotIn(marker, html)
+
+    def test_dashboard_without_geojson(self):
+        report = build_report(sample_analysis())
+        warnings = []
+
+        class CaptureLogger(Logger):
+            def warn(self, message):
+                warnings.append(message)
+
+        real_resource_path = report_module.resource_path
+
+        def fake_resource_path(*parts):
+            if parts and "world.geo.json" in parts[-1]:
+                return os.path.join(tempfile.gettempdir(), "missing-world.geo.json")
+            return real_resource_path(*parts)
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "dashboard.html")
+            with mock.patch.object(report_module, "resource_path", fake_resource_path):
+                build_dashboard(report, out, CaptureLogger(quiet=True))
+            with open(out, encoding="utf-8") as handle:
+                html = handle.read()
+        self.assertTrue(any("world.geo.json" in message for message in warnings))
+        self.assertIn('{"type":"FeatureCollection","features":[]}', html)
+        self.assertIn("93.184.216.34", html)
 
 
 if __name__ == "__main__":

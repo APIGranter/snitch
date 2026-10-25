@@ -96,6 +96,29 @@ class PortScanTests(unittest.TestCase):
         self.assertEqual(scan[0].evidence["unique_ports"], 40)
 
 
+class PlaybookTests(unittest.TestCase):
+    def test_local_findings_get_remediation_and_attack_refs(self):
+        analysis = Analysis()
+        dest = destination(bytes_out=20 * 1024 * 1024, bytes_in=1024 * 1024)
+        analysis.destinations[dest.ip] = dest
+        findings = run_heuristics(analysis)
+        self.assertTrue(findings)
+        for finding in findings:
+            self.assertTrue(finding.remediation, finding.id)
+            self.assertTrue(finding.mitre, finding.id)
+            self.assertRegex(finding.mitre[0], r"^T\d{4}(\.\d{3})? ")
+
+    def test_threat_intel_findings_get_remediation(self):
+        analysis = Analysis()
+        dest = destination(vt={"malicious": 7, "suspicious": 1})
+        analysis.destinations[dest.ip] = dest
+        findings = run_threat_intel(analysis)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].id, "vt_malicious")
+        self.assertIn("T1071.001", findings[0].mitre[0])
+        self.assertTrue(findings[0].remediation)
+
+
 class TorLikeTests(unittest.TestCase):
     def test_two_tor_ports_with_tls(self):
         analysis = Analysis()

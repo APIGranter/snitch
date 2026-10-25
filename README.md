@@ -254,6 +254,9 @@ Heuristics look for periodic beaconing, possible data exfiltration, DNS
 anomalies (long/high-entropy names, TXT abuse), horizontal port scans,
 Tor/anonymising-proxy traffic, cleartext application protocols and elevated
 TCP retransmissions. VirusTotal and the Tor exit list add reputation findings.
+Every finding carries evidence, a confidence and score, MITRE ATT&CK
+references where applicable, and a short remediation playbook shown in the
+dashboard, `findings.csv` and `summary.txt`.
 
 `--fail-on {none,info,low,medium,high,critical}` makes SNItch exit with
 **3** when a finding reaches that severity — useful in CI or scripts.
@@ -288,7 +291,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 100 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 105 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 

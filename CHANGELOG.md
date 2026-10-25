@@ -35,7 +35,8 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   1.x `ip_cache.json`.
 - Local heuristics: beaconing, exfiltration, DNS anomalies, port scans,
   Tor-like traffic, cleartext protocols and retransmissions, with severity,
-  confidence, score and evidence.
+  confidence, score, evidence, MITRE ATT&CK references and remediation
+  guidance (`findings.csv`, `summary.txt`, dashboard modal).
 - New dashboard: themes, map zoom/pan, timeline, charts, searchable/sortable/
   paginated tables, findings and details modals, About page, CSV/JSON exports
   and a strict CSP. All dynamic values are escaped.
@@ -45,7 +46,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 100 unit/integration tests (no tshark or network required).
+- 105 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

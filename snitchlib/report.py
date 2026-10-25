@@ -472,7 +472,7 @@ def save_dns_csv(report: Dict[str, Any], path: str) -> None:
 
 def save_findings_csv(report: Dict[str, Any], path: str) -> None:
     fields = ["severity", "confidence", "id", "title", "detail", "score",
-              "ips", "domains"]
+              "ips", "domains", "mitre", "remediation"]
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
@@ -480,6 +480,7 @@ def save_findings_csv(report: Dict[str, Any], path: str) -> None:
             row = dict(finding)
             row["ips"] = ";".join(finding.get("ips", []))
             row["domains"] = ";".join(finding.get("domains", []))
+            row["mitre"] = ";".join(finding.get("mitre", []))
             writer.writerow(row)
 
 
@@ -531,6 +532,10 @@ def save_summary_txt(report: Dict[str, Any], analysis: Analysis, path: str) -> N
             lines.append(f"           IPs: {', '.join(finding['ips'][:12])}")
         if finding.get("domains"):
             lines.append(f"           Domains: {', '.join(finding['domains'][:12])}")
+        if finding.get("mitre"):
+            lines.append(f"           ATT&CK: {', '.join(finding['mitre'])}")
+        if finding.get("remediation"):
+            lines.append(f"           Next: {finding['remediation']}")
     lines.extend(["", "Top destinations by bytes", "-" * 72])
     for dest in report["destinations"][:20]:
         geo = dest.get("geo") or {}

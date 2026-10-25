@@ -154,6 +154,8 @@ class Finding:
     ips: List[str] = field(default_factory=list)
     domains: List[str] = field(default_factory=list)
     evidence: Dict[str, Any] = field(default_factory=dict)
+    remediation: str = ""
+    mitre: List[str] = field(default_factory=list)
 
     def sort_key(self) -> Tuple[int, float]:
         return (-SEVERITY_ORDER.get(self.severity, 0), -self.score)

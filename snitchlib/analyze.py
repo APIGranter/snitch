@@ -44,6 +44,86 @@ class AnalysisOptions:
 # Ports where "regular" traffic is expected and not interesting for beaconing.
 _BEACON_IGNORE_PORTS = {53, 123, 5353, 1900, 67, 68}
 
+#: Analyst playbooks keyed by finding id: (remediation, MITRE ATT&CK refs).
+PLAYBOOKS: Dict[str, Tuple[str, List[str]]] = {
+    "beaconing": (
+        "Identify the process on the client and compare the schedule with known "
+        "update/telemetry traffic. If it is unexpected, block the destination, "
+        "isolate the host and review persistence.",
+        ["T1071.001 Application Layer Protocol: Web Protocols",
+         "T1571 Non-Standard Port"],
+    ),
+    "outbound_volume": (
+        "Confirm the destination is an approved backup/cloud service. If not, "
+        "inspect the uploading process, preserve logs, suspend it and apply "
+        "egress filtering/DLP.",
+        ["T1048 Exfiltration Over Alternative Protocol",
+         "T1567 Exfiltration Over Web Service"],
+    ),
+    "dns_anomaly": (
+        "Inspect the DNS payloads, validate the base domain, and consider "
+        "blocking it at the resolver. Correlate the queries with the client "
+        "process and check for tunnelling tools.",
+        ["T1071.004 Application Layer Protocol: DNS",
+         "T1568.002 Domain Generation Algorithms"],
+    ),
+    "port_scan": (
+        "Identify the scanning host/process, isolate it, and check whether the "
+        "scan came from malware or from an authorised scanner.",
+        ["T1046 Network Service Discovery"],
+    ),
+    "tor_like": (
+        "Decide whether anonymity software is allowed by policy, then review "
+        "the endpoint and correlate with the user/process. Tor-like traffic "
+        "alone is not proof of malicious activity.",
+        ["T1090.003 Multi-hop Proxy"],
+    ),
+    "cleartext": (
+        "Prefer encrypted alternatives (HTTPS, SSH, IMAPS, SMTPS), block legacy "
+        "plaintext protocols at the firewall, and rotate any credentials that "
+        "may have been sent in the clear.",
+        ["T1040 Network Sniffing"],
+    ),
+    "retransmissions": (
+        "Check the local link, Wi-Fi signal, duplex/speed settings and upstream "
+        "congestion. Retransmissions usually indicate packet loss, not an attack.",
+        [],
+    ),
+    "vt_malicious": (
+        "Block the indicator, isolate the contacting host, collect EDR/process "
+        "evidence and submit related files for analysis. Reputation hits are "
+        "leads, not proof.",
+        ["T1071.001 Application Layer Protocol: Web Protocols"],
+    ),
+    "vt_suspicious": (
+        "Review the detection details and the host's history before blocking. "
+        "Confirm whether the destination is expected for this environment.",
+        ["T1071.001 Application Layer Protocol: Web Protocols"],
+    ),
+    "vt_domain": (
+        "Block the domain, review which clients resolved or contacted it, and "
+        "collect endpoint evidence. Reputation hits are leads, not proof.",
+        ["T1071.001 Application Layer Protocol: Web Protocols"],
+    ),
+    "tor_exit": (
+        "Confirm whether Tor use is allowed by policy and review the endpoint "
+        "and user/process behind it. Exit-node membership alone is not evidence "
+        "of malice.",
+        ["T1090.003 Multi-hop Proxy"],
+    ),
+}
+
+
+def apply_playbooks(findings: List[Finding]) -> List[Finding]:
+    """Attach remediation guidance and ATT&CK references to findings."""
+    for finding in findings:
+        remediation, mitre = PLAYBOOKS.get(finding.id, ("", []))
+        if not finding.remediation:
+            finding.remediation = remediation
+        if not finding.mitre:
+            finding.mitre = list(mitre)
+    return findings
+
 
 def apply_categories(analysis: Analysis, target: str = "") -> None:
     """Assign the heuristic category to every observed domain."""
@@ -62,6 +142,7 @@ def run_heuristics(analysis: Analysis, options: Optional[AnalysisOptions] = None
     findings.extend(_detect_tor_like(analysis, options))
     findings.extend(_detect_cleartext(analysis))
     findings.extend(_detect_retransmissions(analysis))
+    findings = apply_playbooks(findings)
     if options.allowlist and options.allowlist.entries:
         findings, suppressed = options.allowlist.filter(findings)
         if suppressed:
@@ -457,7 +538,7 @@ def run_threat_intel(analysis: Analysis) -> List[Finding]:
                 evidence={"malicious": malicious,
                           "link": f"https://www.virustotal.com/gui/domain/{domain}"},
             ))
-    return findings
+    return apply_playbooks(findings)
 
 
 def sort_findings(analysis: Analysis) -> None:
