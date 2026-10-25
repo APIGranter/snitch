@@ -54,6 +54,16 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parser.parse_args(["x.pcap", "--vt-domains"]).vt_domains, 50)
         self.assertEqual(parser.parse_args(["x.pcap", "--vt-domains", "7"]).vt_domains, 7)
 
+    def test_rdap_url_template(self):
+        parser = build_parser()
+        self.assertIsNone(parser.parse_args(["x.pcap"]).rdap_url)
+        template = "https://rdap.arin.net/registry/ip/{ip}"
+        self.assertEqual(parser.parse_args(["x.pcap", "--rdap-url", template]).rdap_url,
+                         template)
+        for bad in ("https://example.com/ip", "ftp://example.com/{ip}"):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["x.pcap", "--rdap-url", bad])
+
     def test_heuristic_threshold_flags(self):
         parser = build_parser()
         args = parser.parse_args([

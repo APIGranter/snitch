@@ -1549,7 +1549,7 @@ function renderAbout(){
   const configRows = [
     ["Geolocation", enr.offline ? "offline" : (geo.cached||0) + " cached / " + (geo.looked_up||0) + " looked up"],
     ["Reverse DNS", enr.rdns ? ((enr.rdns.cached||0) + " cached / " + (enr.rdns.looked_up||0) + " found") : "disabled"],
-    ["RDAP", enr.rdap ? ((enr.rdap.looked_up||0) + " looked up") : "disabled"],
+    ["RDAP", enr.rdap ? ((enr.rdap.looked_up||0) + " looked up" + (enr.rdap.source ? " via " + enr.rdap.source : "")) : "disabled"],
     ["VirusTotal", vt.available ? ((vt.cached||0) + " cached / " + (vt.queried||0) + " queried") : "no API key"],
     ["Tor exits", enr.tor_exits ? ((enr.tor_exits.matched||0) + " matched") : "disabled"],
     ["Elapsed", enr.elapsed_seconds !== undefined ? enr.elapsed_seconds + "s" : "–"],

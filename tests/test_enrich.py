@@ -8,8 +8,8 @@ import unittest
 from unittest import mock
 
 from snitchlib.enrich import (
-    CACHE_VERSION, EnrichmentCache, EnrichOptions, apply_tor_exits, empty_geo,
-    enrich, enrich_geo, enrich_rdns,
+    CACHE_VERSION, EnrichmentCache, EnrichOptions, _rdap_lookup, _rdap_source,
+    apply_tor_exits, empty_geo, enrich, enrich_geo, enrich_rdap, enrich_rdns,
 )
 from snitchlib.models import Analysis, Destination
 from snitchlib.util import Logger, atomic_write_json
@@ -122,6 +122,59 @@ class GeoFailureCacheTests(unittest.TestCase):
             self.assertEqual(third["looked_up"], 2)
             cache = EnrichmentCache(path, QUIET)
             self.assertIsNone(cache.get("geo_failed", "203.0.113.1"))
+
+
+class RdapTests(unittest.TestCase):
+    def test_source_label_and_default(self):
+        self.assertEqual(_rdap_source(""), "rdap.org")
+        self.assertEqual(
+            _rdap_source("https://rdap.arin.net/registry/ip/{ip}"), "rdap.arin.net")
+        self.assertEqual(_rdap_source("not a url"), "rdap")
+
+    def test_template_is_used_and_ip_is_quoted(self):
+        response = {"name": "TEST-NET", "handle": "NET-1",
+                    "startAddress": "203.0.113.0", "endAddress": "203.0.113.255",
+                    "country": "US", "type": "DIRECT ALLOCATION"}
+        with mock.patch("snitchlib.enrich._get_json", return_value=response) as get:
+            data = _rdap_lookup("2001:db8::1", "https://rdap.example.net/ip/{ip}")
+        self.assertEqual(
+            get.call_args.args[0],
+            "https://rdap.example.net/ip/2001:db8::1",
+        )
+        self.assertEqual(data["source"], "rdap.example.net")
+        self.assertEqual(data["name"], "TEST-NET")
+
+    def test_invalid_template_reports_error_without_network(self):
+        with mock.patch("snitchlib.enrich._get_json") as get:
+            data = _rdap_lookup("1.2.3.4", "https://rdap.example.net/ip")
+        self.assertIn("invalid RDAP URL template", data["_error"])
+        get.assert_not_called()
+
+    def test_cache_is_ignored_when_provider_changes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "cache.json")
+            cache = EnrichmentCache(path, QUIET)
+            cache.set("rdap", "1.2.3.4", {"name": "Old owner", "source": "rdap.org"})
+            cache.save()
+
+            analysis = Analysis()
+            analysis.destinations["1.2.3.4"] = Destination(ip="1.2.3.4")
+            options = EnrichOptions(
+                offline=True, rdap=True, cache_path=path,
+                rdap_url="https://rdap.arin.net/registry/ip/{ip}",
+                logger=QUIET,
+            )
+            stats = enrich_rdap(analysis, options)
+            self.assertEqual(stats["cached"], 0)
+            self.assertEqual(stats["source"], "rdap.arin.net")
+            self.assertEqual(analysis.destinations["1.2.3.4"].rdap, {})
+
+            analysis.destinations["1.2.3.4"] = Destination(ip="1.2.3.4")
+            options = EnrichOptions(offline=True, rdap=True, cache_path=path,
+                                    logger=QUIET)
+            stats = enrich_rdap(analysis, options)
+            self.assertEqual(stats["cached"], 1)
+            self.assertEqual(analysis.destinations["1.2.3.4"].rdap["name"], "Old owner")
 
 
 class OfflineEnrichmentTests(unittest.TestCase):

@@ -13,6 +13,7 @@ import argparse
 import os
 import shutil
 import sys
+import urllib.parse
 from dataclasses import replace
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence
@@ -69,6 +70,7 @@ DEFAULTS: Dict[str, Any] = {
     "refresh": False,
     "no_cache": False,
     "rdap": False,
+    "rdap_url": None,
     "check_tor_exits": False,
     "no_html": False,
     "open": False,
@@ -140,6 +142,17 @@ def _positive_float(value: Any) -> float:
     if number <= 0:
         raise ValueError("must be greater than 0")
     return number
+
+
+def _rdap_url(value: Any) -> str:
+    """Validate an RDAP URL template containing ``{ip}``."""
+    url = str(value or "").strip()
+    if "{ip}" not in url:
+        raise ValueError("RDAP URL template must contain {ip}")
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("RDAP URL must be an http(s) URL")
+    return url
 
 
 def _unique_dir(path: str) -> str:
@@ -372,6 +385,9 @@ def build_parser() -> argparse.ArgumentParser:
                               help="Skip reverse-DNS lookups.")
     enrich_group.add_argument("--rdap", action="store_true",
                               help="Look up network ownership via RDAP.")
+    enrich_group.add_argument("--rdap-url", type=_rdap_url, default=None, metavar="TEMPLATE",
+                              help="RDAP URL template containing {ip} "
+                                   "(default: https://rdap.org/ip/{ip}); implies --rdap.")
     enrich_group.add_argument("--check-tor-exits", action="store_true",
                               help="Download the Tor exit-node list and flag matches.")
     enrich_group.add_argument("--offline", action="store_true",
@@ -868,7 +884,8 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         geo=not args.no_geo,
         vt=not args.no_vt,
         rdns=not args.no_rdns,
-        rdap=bool(args.rdap),
+        rdap=bool(args.rdap) or bool(args.rdap_url),
+        rdap_url=str(args.rdap_url or ""),
         vt_key=vt_key,
         vt_delay=max(0.0, float(args.vt_delay or 0)),
         vt_domains=max(0, int(args.vt_domains or 0)),

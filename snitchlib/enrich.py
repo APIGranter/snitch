@@ -218,6 +218,7 @@ class EnrichOptions:
     rdns_ttl_days: float = 7.0
     tor_exits: bool = False
     tor_exit_url: str = "https://check.torproject.org/torbulkexitlist"
+    rdap_url: str = "https://rdap.org/ip/{ip}"
     logger: Logger = field(default_factory=lambda: Logger(quiet=True))
 
 
@@ -419,8 +420,28 @@ def enrich_rdns(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
     return stats
 
 
-def _rdap_lookup(ip: str) -> Dict[str, Any]:
-    data = _get_json(f"https://rdap.org/ip/{ip}", timeout=12.0, retries=1)
+DEFAULT_RDAP_URL = "https://rdap.org/ip/{ip}"
+
+
+def _rdap_source(rdap_url: str) -> str:
+    """Human-readable provider label (hostname) for an RDAP URL template."""
+    try:
+        host = urllib.parse.urlsplit(rdap_url or DEFAULT_RDAP_URL).hostname or ""
+    except ValueError:
+        host = ""
+    return host or "rdap"
+
+
+def _rdap_lookup(ip: str, rdap_url: str = DEFAULT_RDAP_URL) -> Dict[str, Any]:
+    template = rdap_url or DEFAULT_RDAP_URL
+    parsed = urllib.parse.urlsplit(template)
+    if "{ip}" not in template or parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return {"_error": "invalid RDAP URL template: expected an http(s) URL with {ip}"}
+    try:
+        url = template.format(ip=urllib.parse.quote(ip, safe=":"))
+    except (KeyError, IndexError, ValueError) as exc:
+        return {"_error": f"invalid RDAP URL template: {exc}"}
+    data = _get_json(url, timeout=12.0, retries=1)
     if not data or data.get("_error"):
         return {"_error": (data or {}).get("_error", "RDAP lookup failed")}
     country = data.get("country", "") or ""
@@ -441,17 +462,20 @@ def _rdap_lookup(ip: str) -> Dict[str, Any]:
         "range": f"{data.get('startAddress', '')} - {data.get('endAddress', '')}".strip(" -"),
         "country": country,
         "type": data.get("type", "") or "",
-        "source": "rdap.org",
+        "source": _rdap_source(rdap_url),
     }
 
 
 def enrich_rdap(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
     cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
+    source = _rdap_source(options.rdap_url)
     todo = []
-    stats = {"cached": 0, "looked_up": 0, "failed": 0}
+    stats = {"cached": 0, "looked_up": 0, "failed": 0, "source": source}
     for dest in analysis.destinations.values():
         cached = cache.get("rdap", dest.ip, 30, options.refresh)
-        if cached:
+        # Different providers may report different owners, so only reuse an
+        # entry produced by the provider that is configured now.
+        if cached and (cached.get("source") or _rdap_source(DEFAULT_RDAP_URL)) == source:
             dest.rdap = {k: v for k, v in cached.items() if not k.startswith("_")}
             stats["cached"] += 1
         else:
@@ -459,10 +483,14 @@ def enrich_rdap(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
     if options.offline or not options.rdap or not todo:
         cache.save()
         return stats
-    options.logger.info(f"RDAP (network owner) for {len(todo)} IP(s) ...")
+    options.logger.info(
+        f"RDAP ({source}) network ownership for {len(todo)} IP(s) ...")
     workers = max(1, min(16, int(options.workers or 8)))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="rdap") as pool:
-        futures = {pool.submit(_rdap_lookup, ip): ip for ip in todo}
+        futures = {
+            pool.submit(_rdap_lookup, ip, options.rdap_url or DEFAULT_RDAP_URL): ip
+            for ip in todo
+        }
         for future in as_completed(futures):
             ip = futures[future]
             try:

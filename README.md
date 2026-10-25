@@ -232,6 +232,7 @@ dashboard, and `--title` / `--handle` to brand the report.
 | `--no-geo` | Skip geolocation lookups. |
 | `--no-rdns` | Skip reverse-DNS lookups. |
 | `--rdap` | Look up network ownership via RDAP. |
+| `--rdap-url TEMPLATE` | Use a custom RDAP endpoint (e.g. `https://rdap.arin.net/registry/ip/{ip}`); must contain `{ip}` and implies `--rdap`. Cached records from another provider are ignored. |
 | `--no-vt` | Skip VirusTotal (cached results are still used). |
 | `--check-tor-exits` | Download the Tor exit list and flag matching IPs. |
 | `--offline` | No network requests at all; use cache only. |
@@ -313,7 +314,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 136 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 141 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
