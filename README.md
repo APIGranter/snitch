@@ -302,7 +302,9 @@ Tor/anonymising-proxy traffic, cleartext application protocols and elevated
 TCP retransmissions. VirusTotal and the Tor exit list add reputation findings.
 Every finding carries evidence, a confidence and score, MITRE ATT&CK
 references where applicable, and a short remediation playbook shown in the
-dashboard, `findings.csv` and `summary.txt`.
+dashboard, `findings.csv` and `summary.txt`. In the dashboard, the finding
+modal compares the observed values with the active thresholds so it is obvious
+which condition fired.
 
 `--fail-on {none,info,low,medium,high,critical}` makes SNItch exit with
 **3** when a finding reaches that severity — useful in CI or scripts.

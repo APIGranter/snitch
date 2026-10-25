@@ -38,6 +38,10 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Server hostnames announced in cleartext FTP/SMTP/IMAP/POP3 greeting banners
   are linked to the destination IP and domain table (tagged IMAP responses;
   current tshark does not dissect untagged IMAP greetings).
+- Finding details explain why the finding fired: observed values (contact
+  events, interval CV, upload volume, DNS entropy, ports, …) are compared with
+  the active thresholds in a compact bar view, with raw evidence behind a
+  collapsible block.
 - Findings tab filters by severity, confidence and finding category (plus free
   text search) and shows how many rows match.
 - About tab threshold tuner: edit the profile or individual heuristic values,

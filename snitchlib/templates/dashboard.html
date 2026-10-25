@@ -207,6 +207,16 @@
     border:1px solid var(--line);border-radius:7px;padding:6px 8px;min-width:0}
   pre.evidence{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:12px;
                font-size:11px;overflow:auto;max-height:280px;white-space:pre-wrap;overflow-wrap:anywhere}
+  details.raw-evidence{margin-top:8px}
+  details.raw-evidence summary{cursor:pointer;color:var(--muted);font-size:11px;padding:4px 0}
+  .why{display:flex;flex-direction:column;gap:10px}
+  .why-row{display:flex;flex-direction:column;gap:3px}
+  .why-head{display:flex;justify-content:space-between;gap:12px;font-size:12px}
+  .why-head .mono{color:var(--accent)}
+  .why-track{height:6px;background:var(--panel2);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+  .why-fill{display:block;height:100%;background:var(--accent);border-radius:99px}
+  .why-fill.hot{background:var(--warn)}
+  .why-note{font-size:10.5px;color:var(--muted)}
   .section-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:16px 0 7px}
   .notice{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--warn);
           border-radius:9px;padding:10px 12px;color:var(--muted);font-size:12px;margin-bottom:14px}
@@ -1483,6 +1493,101 @@ function openFlow(index){
   ]) + `<div class="section-title">Hostnames</div><div class="chips">${(f.domains||[]).map(x => `<span class="chip">${esc(x)}</span>`).join("") || '<span class="muted">–</span>'}</div>`;
   openModal(f.client + " → " + f.dst, esc(f.service), body);
 }
+function whyMetric(label, display, ratio, note){
+  const value = Number(ratio);
+  const pct = Number.isFinite(value) ? Math.max(0, Math.min(100, value * 100)) : 0;
+  return `<div class="why-row">
+    <div class="why-head"><span>${esc(label)}</span><span class="mono">${esc(display)}</span></div>
+    <div class="why-track"><span class="why-fill${value > 1.25 ? " hot" : ""}" style="width:${pct.toFixed(1)}%"></span></div>
+    ${note ? `<div class="why-note">${esc(note)}</div>` : ""}
+  </div>`;
+}
+function whyFact(label, display, note){
+  return `<div class="why-row">
+    <div class="why-head"><span>${esc(label)}</span><span class="mono">${esc(display)}</span></div>
+    ${note ? `<div class="why-note">${esc(note)}</div>` : ""}
+  </div>`;
+}
+function whyThisFired(f){
+  const e = f.evidence || {};
+  const h = (REPORT.meta || {}).heuristics || {};
+  const rows = [];
+  const add = (label, display, ratio, note) => rows.push(whyMetric(label, display, ratio, note));
+  const pct = (value) => Math.round(Number(value || 0) * 100) + "%";
+  if (f.id === "beaconing") {
+    add("Contact events", fmtNum(e.events), e.events / Math.max(1, h.beacon_min_events || 1),
+        "minimum " + fmtNum(h.beacon_min_events) + " distinct contacts");
+    const lo = Number(h.beacon_min_interval || 0), hi = Number(h.beacon_max_interval || 0);
+    const at = hi > lo ? (Number(e.median_interval_s) - lo) / (hi - lo) : 0;
+    add("Median interval", Number(e.median_interval_s || 0).toFixed(1) + " s", at,
+        "accepted window " + fmtNum(lo) + "–" + fmtNum(hi) + " s");
+    add("Interval CV", Number(e.cv || 0).toFixed(2),
+        Number(e.cv || 0) / Math.max(0.01, h.beacon_max_cv || 0.5),
+        "limit " + h.beacon_max_cv + " (lower is more regular)");
+    add("Regularity", pct(e.regularity), Number(e.regularity || 0), "70% of gaps must sit near the median");
+  } else if (f.id === "outbound_volume") {
+    add("Uploaded", fmtBytes(e.bytes_out), e.bytes_out / Math.max(1, h.exfil_min_bytes || 1),
+        "minimum " + fmtBytes(h.exfil_min_bytes));
+    add("Upload / download", Number(e.ratio || 0).toFixed(1) + ":1",
+        Number(e.ratio || 0) / Math.max(0.01, h.exfil_ratio || 1),
+        "minimum " + h.exfil_ratio + ":1 asymmetry");
+    if (e.category) rows.push(whyFact("Domain category", e.category, "unclassified or cloud destinations raise confidence"));
+  } else if (f.id === "dns_anomaly") {
+    const q = e.qtypes || {};
+    const textLike = Number(q.TXT || 0) + Number(q.NULL || 0) + Number(q.ANY || 0);
+    add("Unique subdomains", fmtNum(e.unique_subdomains),
+        e.unique_subdomains / Math.max(1, h.dns_min_unique || 1),
+        "minimum " + fmtNum(h.dns_min_unique) + " under one base domain");
+    add("Average label entropy", Number(e.avg_entropy || 0).toFixed(2) + " bits",
+        Number(e.avg_entropy || 0) / 8, "3.5+ bits suggests encoded labels");
+    add("Longest label", fmtNum(e.max_label_len) + " chars",
+        Number(e.max_label_len || 0) / 50, "50+ chars is suspicious");
+    add("TXT/NULL/ANY queries", fmtNum(textLike), textLike / 10, "10+ suggests tunnelling");
+    if ((e.samples || []).length) rows.push(`<div class="chips">${
+      e.samples.slice(0, 6).map(s => `<span class="chip mono">${esc(s)}</span>`).join("")}</div>`);
+  } else if (f.id === "port_scan") {
+    add("Distinct ports", fmtNum(e.unique_ports), e.unique_ports / Math.max(1, h.scan_min_ports || 1),
+        "minimum " + fmtNum(h.scan_min_ports) + " ports on one host");
+    add("SYN packets", fmtNum(e.syns), Number(e.syns || 0) / 10, "10+ SYNs required");
+    if ((e.ports || []).length) rows.push(`<div class="chips">${
+      e.ports.slice(0, 20).map(p => `<span class="chip mono">${esc(p)}</span>`).join("")}</div>`);
+  } else if (f.id === "tor_like") {
+    add("Destinations", fmtNum(e.destinations), e.destinations / Math.max(1, h.tor_max_destinations || 1),
+        "maximum " + fmtNum(h.tor_max_destinations) + " distinct hosts");
+    add("DNS queries", fmtNum(e.dns_queries), Number(e.dns_queries || 0) / 2,
+        "2 or fewer when no Tor port is seen");
+    add("TLS / QUIC share", pct(e.tls_share), Number(e.tls_share || 0),
+        "90%+ when no Tor port is seen");
+    if ((e.tor_ports || []).length) rows.push(`<div class="chips">${
+      e.tor_ports.map(p => `<span class="chip mono">port ${esc(p)}</span>`).join("")}</div>`);
+  } else if (f.id === "cleartext") {
+    add("Affected destinations", fmtNum(e.destinations),
+        Number(e.destinations || 0) / 20, "risk scales with the number of hosts");
+    const ports = Object.entries(e.ports || {}).slice(0, 10);
+    if (ports.length) rows.push(`<div class="chips">${ports.map(([port, count]) =>
+      `<span class="chip mono">port ${esc(port)} <b>${fmtNum(count)}</b></span>`).join("")}</div>`);
+  } else if (f.id === "retransmissions") {
+    add("Retransmissions", fmtNum(e.retransmissions),
+        Number(e.retransmissions || 0) / 20, "20+ required");
+    add("Rate", Number(e.rate_percent || 0).toFixed(2) + "%",
+        Number(e.rate_percent || 0) / 2, "2%+ points to loss or congestion");
+    rows.push(whyFact("Packets analysed", fmtNum(e.packets), "share of all destination packets"));
+  } else if (f.id === "vt_malicious") {
+    add("Malicious engines", fmtNum(e.malicious), Number(e.malicious || 0) / 5,
+        "5+ engines raises severity to critical");
+    if (e.suspicious) rows.push(whyFact("Suspicious engines", fmtNum(e.suspicious), "secondary signal only"));
+  } else if (f.id === "vt_suspicious") {
+    add("Suspicious engines", fmtNum(e.suspicious), Number(e.suspicious || 0),
+        "one or more detections");
+  } else if (f.id === "vt_domain") {
+    add("Malicious engines", fmtNum(e.malicious), Number(e.malicious || 0) / 3,
+        "3+ engines raises severity to high");
+  } else if (f.id === "tor_exit") {
+    rows.push(whyFact("Tor exit list", "match", "the address is present in the downloaded exit-node set"));
+  }
+  if (!rows.length) return "";
+  return `<div class="section-title">Why this fired</div><div class="why">${rows.join("")}</div>`;
+}
 function openFinding(index){
   const f = (REPORT.findings || [])[index];
   if (!f) return;
@@ -1500,7 +1605,8 @@ function openFinding(index){
     (f.domains && f.domains.length ? `<div class="section-title">Domains</div><div class="chips">${f.domains.map(d => `<span class="chip link" data-open-domain="${esc(d)}" role="button" tabindex="0" title="Open domain details">${esc(d)}</span>`).join("")}</div>` : "") +
     (related || "") +
     highlight +
-    (f.evidence && Object.keys(f.evidence).length ? `<div class="section-title">Evidence</div><pre class="evidence">${esc(JSON.stringify(f.evidence, null, 2))}</pre>` : "") +
+    whyThisFired(f) +
+    (f.evidence && Object.keys(f.evidence).length ? `<details class="raw-evidence"><summary>Raw evidence</summary><pre class="evidence">${esc(JSON.stringify(f.evidence, null, 2))}</pre></details>` : "") +
     (f.mitre && f.mitre.length ? `<div class="section-title">MITRE ATT&amp;CK</div><div class="chips">${f.mitre.map(t => `<span class="chip mono">${esc(t)}</span>`).join("")}</div>` : "") +
     (f.remediation ? `<div class="section-title">Recommended next steps</div><p style="margin:0">${esc(f.remediation)}</p>` : "");
   openModal(f.title, severityPill(f.severity) + " · " + esc(f.id), body);

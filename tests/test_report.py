@@ -126,6 +126,10 @@ class ReportTests(unittest.TestCase):
         # Findings can be filtered by severity, confidence and category.
         self.assertIn("finding-confidence", html)
         self.assertIn("finding-category", html)
+        # The finding modal explains which threshold fired with visual metrics.
+        self.assertIn("function whyThisFired", html)
+        self.assertIn("Why this fired", html)
+        self.assertIn("Raw evidence", html)
 
     def test_dashboard_payload_caps_but_keeps_finding_rows(self):
         analysis = sample_analysis()
