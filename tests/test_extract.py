@@ -256,6 +256,18 @@ class ExtractorTests(unittest.TestCase):
         analysis = extract([tcp_row(), nbns], self.options())
         self.assertIn("laptop", analysis.clients[CLIENT].hostnames)
 
+    def test_mdns_local_name_is_attached_to_source_client(self):
+        mdns = dns_query_row(
+            frame_number="2",
+            frame_protocols="eth:ethertype:ip:udp:mdns",
+            ip_dst="224.0.0.251",
+            udp_srcport="5353",
+            udp_dstport="5353",
+            dns_qry_name="Living-Room-TV.local",
+        )
+        analysis = extract([tcp_row(), mdns], self.options())
+        self.assertIn("living-room-tv.local", analysis.clients[CLIENT].hostnames)
+
     def test_dns_attaches_name_to_destination(self):
         rows = [
             tcp_row(tls_handshake_extensions_server_name="", frame_number="1"),

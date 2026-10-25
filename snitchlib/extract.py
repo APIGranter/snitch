@@ -529,6 +529,13 @@ class Extractor:
         if nbns and src_client:
             self._remember_hostname(src, nbns)
 
+        # mDNS/LLMNR names ending in .local are usually the device's own name.
+        if src_client and (row.get("dns_qry_name") or ""):
+            for raw_name in _split_multi(row.get("dns_qry_name") or ""):
+                name = normalize_hostname(raw_name)
+                if name.endswith(".local"):
+                    self._remember_hostname(src, name)
+
     def _feed_dns(self, row: Dict[str, str], timestamp: float, src: str, dst: str,
                   sport: int, dport: int, src_client: bool, dst_client: bool) -> None:
         qname_raw = row.get("dns_qry_name") or ""
