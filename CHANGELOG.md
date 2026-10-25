@@ -19,6 +19,8 @@ A full internal rewrite that keeps the 1.x command line and output layout.
 - Time and filter controls: `--since`, `--until`, `--display-filter`.
 - Client selection: `--auto-clients`, `--hotspot-net`, `--gateway`,
   `--exclude-ip`, `--min-packets`.
+- Finding allowlist (`--allowlist PATH`): suppress findings for known-good
+  IPs, CIDRs and domain suffixes (boundary-aware), with a suppression warning.
 - Enrichment: concurrent geolocation/rDNS/RDAP, optional VirusTotal domain
   checks (`--vt-domains`), Tor exit-node checks, `--offline`, `--refresh`,
   `--no-cache`, configurable `--workers`.
@@ -36,7 +38,7 @@ A full internal rewrite that keeps the 1.x command line and output layout.
   `--quiet`, `--verbose` and JSON config files (`--config`, `snitch.json`).
 - Packaging: `pyproject.toml` with a `snitch` console script, package data,
   `MANIFEST.in`, PyInstaller `snitch.spec`, build scripts and GitHub Actions CI.
-- 82 unit/integration tests (no tshark or network required).
+- 92 unit/integration tests (no tshark or network required).
 - Documentation: rewritten `README.md`, `snitch.example.json`, `HANDOFF.md`.
 
 ### Changed

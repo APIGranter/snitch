@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name = "snitch-analyzer"
 description = "Turn a packet capture into a geolocated, reputation-checked and classified traffic report with an offline HTML dashboard."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "APIGranter" }]
 keywords = ["pcap", "pcapng", "tshark", "wireshark", "network", "sni", "dns", "security", "forensics"]
 classifiers = [
@@ -15,7 +16,6 @@ classifiers = [
   "Environment :: Console",
   "Intended Audience :: Information Technology",
   "Intended Audience :: System Administrators",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.9",
@@ -37,11 +37,12 @@ Homepage = "https://github.com/APIGranter/snitch"
 Issues = "https://github.com/APIGranter/snitch/issues"
 
 [tool.setuptools]
-packages = ["snitchlib"]
+packages = ["snitchlib", "snitchlib.templates"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-snitchlib = ["templates/*.html", "world.geo.json"]
+snitchlib = ["world.geo.json"]
+"snitchlib.templates" = ["*.html"]
 
 [tool.setuptools.dynamic]
 version = { attr = "snitchlib.__version__" }

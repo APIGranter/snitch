@@ -16,6 +16,7 @@ from .classify import (
     CAT_CDN, CAT_CLOUD, TOR_PORTS, base_domain, classify_domain,
     port_service, subdomain_prefix,
 )
+from .allowlist import Allowlist
 from .models import Analysis, Finding
 from .util import coefficient_of_variation, entropy, median, percentage
 
@@ -37,6 +38,7 @@ class AnalysisOptions:
     scan_min_ports: int = 25
     tor_max_destinations: int = 4
     tor_min_bytes: int = 200 * 1024
+    allowlist: Optional[Allowlist] = None
 
 
 # Ports where "regular" traffic is expected and not interesting for beaconing.
@@ -60,6 +62,13 @@ def run_heuristics(analysis: Analysis, options: Optional[AnalysisOptions] = None
     findings.extend(_detect_tor_like(analysis, options))
     findings.extend(_detect_cleartext(analysis))
     findings.extend(_detect_retransmissions(analysis))
+    if options.allowlist and options.allowlist.entries:
+        findings, suppressed = options.allowlist.filter(findings)
+        if suppressed:
+            analysis.warnings.append(
+                f"Allowlist suppressed {suppressed} finding(s) "
+                f"({options.allowlist.describe()})."
+            )
     analysis.findings.extend(findings)
     return findings
 

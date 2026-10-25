@@ -114,8 +114,33 @@ networks pick one of:
 | `--gateway IP[,IP]` | Addresses never counted as clients. |
 | `--exclude-ip IP[,CIDR]` | Exclude addresses/networks (repeatable). |
 | `--min-packets N` | Ignore destinations seen in fewer than `N` packets. |
+| `--allowlist PATH` | Suppress findings for known-good IPs/CIDRs/domains. |
 | `--display-filter FILTER` | Extra tshark display filter, e.g. `tcp.port == 443`. |
 | `--since` / `--until` | Time range (ISO-8601 or epoch seconds). |
+
+### Suppress known-good traffic
+
+Chatty updaters, analytics endpoints or your own infrastructure can drown the
+findings. Pass a text file with one entry per line (see
+`allowlist.example.txt`):
+
+```bash
+python3 snitch.py capture.pcapng --allowlist allowlist.txt
+```
+
+```
+# IPs, CIDRs, IPv6 and domain suffixes all work
+203.0.113.10
+198.51.100.0/24
+example.com          # also matches cdn.example.com, not notexample.com
+*.telemetry.example.org
+```
+
+A finding is suppressed when one of its domains matches, or when **every** IP
+it references matches. Matching is boundary-aware. Suppressed findings are
+counted in a warning shown on the dashboard and in `summary.txt`; raw
+destinations/domains are still reported normally. Invalid entries fail fast
+with exit code 2.
 
 ---
 
@@ -187,6 +212,7 @@ underscores instead of dashes. CLI flags override the file. Start from
 {
   "target": "example.com",
   "auto_clients": true,
+  "allowlist": "allowlist.txt",
   "vt_domains": 25,
   "workers": 8,
   "fail_on": "high"
@@ -238,7 +264,7 @@ are not committed: attach them to a GitHub *Release*.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests -v   # 82 tests, no network/tshark needed
+python3 -m unittest discover -s tests -v   # 92 tests, no network/tshark needed
 python3 -m build                           # wheel + sdist
 ```
 
@@ -250,6 +276,7 @@ snitchlib/
   cli.py                  argument parsing, config, pipeline, exit codes
   capture.py              tshark discovery, live capture, filters
   extract.py              single streaming pass, synthetic rows, aggregation
+  allowlist.py            parser/matcher for finding suppression
   classify.py             domain categories and base-domain logic
   analyze.py              beaconing/exfil/DNS/port-scan/Tor/cleartext heuristics
   enrich.py               geo, rDNS, RDAP, VirusTotal, Tor exits, cache

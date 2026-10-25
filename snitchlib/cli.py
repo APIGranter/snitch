@@ -21,6 +21,7 @@ from .analyze import (
     AnalysisOptions, apply_categories, run_heuristics, run_threat_intel,
     sort_findings,
 )
+from .allowlist import Allowlist, AllowlistError
 from .capture import (
     TsharkError, build_display_filter, default_live_path, find_tshark,
     iter_packets, list_interfaces, live_capture, platform_note, resolve_interface,
@@ -50,6 +51,7 @@ DEFAULTS: Dict[str, Any] = {
     "auto_clients": False,
     "exclude_ip": None,
     "min_packets": 1,
+    "allowlist": "",
     "tshark": None,
     "vt_key": "",
     "vt_key_file": "vt_key.txt",
@@ -309,6 +311,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Exclude destination/client addresses (repeatable).")
     selection.add_argument("--min-packets", type=int, default=1, metavar="N",
                            help="Ignore destinations with fewer than N packets.")
+    selection.add_argument("--allowlist", default="", metavar="PATH",
+                           help="Text file of IPs/CIDRs/domains whose findings are suppressed.")
 
     # --- enrichment -------------------------------------------------------
     enrich_group = parser.add_argument_group("enrichment")
@@ -588,6 +592,14 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         logger.error(str(exc))
         return 2
 
+    try:
+        allowlist = Allowlist.load(args.allowlist) if args.allowlist else Allowlist.empty()
+    except AllowlistError as exc:
+        logger.error(str(exc))
+        return 2
+    if allowlist.entries:
+        logger.info(f"Allowlist: {allowlist.entries} entries ({allowlist.describe()})")
+
     logger.info(f"Capture: {source if not live else interface}")
     logger.info(f"Analyzing {display_name} with a single tshark pass ...")
     rows = _limited(
@@ -622,8 +634,13 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         return 1
 
     # --- classification and local heuristics ------------------------------
+    if allowlist.entries:
+        analysis.capture["allowlist_entries"] = allowlist.entries
+        analysis.capture["allowlist_source"] = allowlist.source
+
     apply_categories(analysis, args.target)
-    run_heuristics(analysis, AnalysisOptions(target=normalize_target(args.target)))
+    run_heuristics(analysis, AnalysisOptions(target=normalize_target(args.target),
+                                             allowlist=allowlist))
 
     # --- enrichment -------------------------------------------------------
     base_dir = os.path.abspath(_expand(args.out_dir) or base_output_dir())

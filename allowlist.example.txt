@@ -1,0 +1,22 @@
+# SNItch finding allowlist (example)
+#
+# Copy this file, edit it, and pass it with:  --allowlist allowlist.txt
+# One entry per line. Blank lines and text after "#" are ignored.
+#
+# A finding is suppressed when one of its domains matches, or when EVERY IP it
+# references matches. Findings without an IP/domain are never suppressed.
+
+# --- IPs and networks -------------------------------------------------------
+# 203.0.113.10
+# 198.51.100.0/24
+# 2001:db8::/32
+
+# --- domain suffixes (subdomains included, label-boundary aware) -----------
+# example.com
+# *.example.com
+# telemetry.example.org
+
+# --- explicit prefixes (optional, same result) -----------------------------
+# ip 192.0.2.5
+# cidr 10.0.0.0/8
+# domain analytics.example.net

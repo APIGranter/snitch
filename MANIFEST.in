@@ -1,7 +1,9 @@
 include README.md
 include LICENSE
 include CHANGELOG.md
+include HANDOFF.md
 include snitch.example.json
+include allowlist.example.txt
 include snitch.spec
 include snitch.py
 include run.sh
@@ -12,4 +14,4 @@ recursive-include snitchlib/templates *.html
 include snitchlib/world.geo.json
 
 recursive-include tests *.py
-recursive-include scripts *.py *.sh *.bat
+recursive-include scripts *.sh *.bat
