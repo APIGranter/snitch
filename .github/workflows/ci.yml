@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.9", "3.11", "3.13"]
+        include:
+          - os: windows-latest
+            python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install tshark (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+
+      - name: Show Python and tshark versions
+        if: runner.os == 'Linux'
+        run: |
+          python --version
+          tshark --version | head -2
+
+      - name: Show Python version
+        if: runner.os != 'Linux'
+        run: python --version
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Lint
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: |
+          python -m pip install ruff
+          python -m ruff check snitchlib tests snitch.py
+
+      - name: Check the CLI starts
+        run: python snitch.py --version
+
+      - name: Build wheel and sdist
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          python -m pip install --force-reinstall dist/*.whl
+          snitch --version

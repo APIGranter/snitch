@@ -1,93 +1,443 @@
 # SNItch
 
-A Python tool that, from a network capture (`.pcap`/`.pcapng`), reveals where a
-device really talks to: it extracts the destination IPs, **geolocates** them,
-checks their **reputation** on VirusTotal, **classifies the domains** by category
-(target, chatbot, tracking, device telemetry, other apps…) and builds a
-**self-contained HTML dashboard** (world map + tables + charts) that opens in any
-browser offline.
+**SNItch** turns a packet capture (`.pcap` / `.pcapng`) into a clear picture of
+where a device *really* talks to. It extracts destinations with `tshark`,
+geolocates them, checks their reputation on VirusTotal, classifies the domains
+seen in TLS SNI and DNS, runs local traffic heuristics, and builds a
+**self-contained offline HTML dashboard** — map, timeline, charts, searchable
+tables and findings.
 
-The name plays on **SNI** (the hostname that travels in the TLS handshake):
-SNItch *snitches* on which servers each app contacts.
+The name plays on **SNI** (the hostname sent in the TLS handshake): SNItch
+*snitches* on the servers each app contacts.
 
-Built as part of a network-traffic analysis exercise (Ethical Hacking).
+> Author: **@APIGranter** · MIT licensed · Educational / defensive use only.
+> Runs on Linux (incl. Kali), Windows and macOS. No Python dependencies.
 
-> Author: **@APIGranter** · Runs on Windows, Linux (incl. Kali) and macOS.
+---
 
 ## What it does
 
-1. **Picks** the capture file (CLI argument or a graphical file picker).
-2. **Extracts** the destination IPs with `tshark`, dedupes them and counts packets.
-   By default it isolates only the hotspot clients' traffic (dropping the laptop's own).
-3. **Enriches** each IP: geolocation (ipwho.is) and reputation (VirusTotal).
-4. **Extracts and classifies the domains** (SNI and DNS) by category.
-5. **Saves** the results as CSV, JSON and TXT.
-6. **Builds** an HTML dashboard with a host map, summary, per-country and
-   per-provider breakdown, domain classification and each IP's reputation (clickable).
+1. **Reads** a capture once with a streaming `tshark` pass (or captures live).
+2. **Extracts** destinations, clients, ports, protocols, DNS queries, TLS/DTLS/
+   QUIC and gQUIC SNI, HTTP/1.1 hosts and HTTP/2 `:authority` values, server
+   names announced in FTP/SMTP/IMAP/POP3 greeting banners, and aggregates them
+   into flows.
+3. **Enriches** IPs with geolocation, reverse DNS, optional RDAP ownership and
+   VirusTotal reputation; optionally checks the Tor exit-node list.
+4. **Classifies** domains (target, chatbot, tracking, analytics, device
+   telemetry, updates, apps, email, security/VPN, CDN, cloud, unclassified).
+5. **Runs local heuristics** for beaconing, possible exfiltration, DNS
+   anomalies, port scans, Tor-like traffic, cleartext protocols and high
+   retransmission rates.
+6. **Writes** JSON/CSV/TXT reports and a single-file HTML dashboard that works
+   offline (no CDN, no external assets).
+
+---
 
 ## Requirements
 
-- [Python 3](https://www.python.org/downloads/) (no external dependencies: standard library only).
-- [Wireshark](https://www.wireshark.org/) / `tshark` installed and on PATH (already present on Kali).
-- (Optional) A free VirusTotal API key for the reputation column.
-- (Optional, for the graphical file picker) Tkinter: on Kali/Debian, `sudo apt install python3-tk`.
+- **Python 3.9+** — standard library only.
+- **Wireshark / `tshark`** installed and on `PATH` (or pass `--tshark PATH`).
+- Optional: a free **VirusTotal API key** for reputation checks.
+- Optional: **Tkinter** for the graphical file picker when no capture is given
+  (`sudo apt install python3-tk` on Kali/Debian).
 
-## Usage
+---
 
-Copy `vt_key.example.txt` to `vt_key.txt` and paste your VirusTotal API key inside.
+## Install
 
 ```bash
-# Windows
-python snitch.py capture.pcapng --target example.com
-
-# Linux (Kali) / macOS
-python3 snitch.py capture.pcapng --target example.com
+git clone https://github.com/APIGranter/snitch.git
+cd snitch
+python3 snitch.py --help
 ```
 
-With no capture given, a file picker opens (if Tkinter is available).
-Shortcuts: **double-click `run.bat`** (Windows) or **`./run.sh`** (Linux/macOS).
+Or install it as a command:
 
-> On Linux the default Windows-hotspot filter (`192.168.137.0/24`) does not apply:
-> use `--all`, `--src-ip <IP>` or `--hotspot-net`/`--gateway` for your network.
+```bash
+python3 -m pip install .
+snitch --help
+# development install:
+python3 -m pip install -e .
+```
 
-### Useful options
+`python3 -m snitchlib` is equivalent to `python3 snitch.py`.
 
-| Option | What for |
+---
+
+## Quick start
+
+```bash
+# Analyze a capture, only the traffic of one client
+python3 snitch.py capture.pcapng --src-ip 192.168.1.42 --open
+
+# Follow one domain and mark it as the target
+python3 snitch.py capture.pcapng --target example.com --open
+
+# Analyze everything, without VirusTotal (fast, offline-friendly)
+python3 snitch.py capture.pcapng --all --no-vt
+
+# Live capture for 60 seconds on eth0
+python3 snitch.py --live eth0 --duration 60 --open
+
+# List capture interfaces
+python3 snitch.py --list-interfaces
+```
+
+With no capture argument, a file picker opens if Tkinter is available.
+
+### VirusTotal key
+
+Provide it in one of these ways (first match wins):
+
+1. `--vt-key KEY`
+2. the `VT_API_KEY` environment variable
+3. `vt_key.txt` next to where you run the command (see `vt_key.example.txt`)
+
+Free-tier keys are limited to **4 requests/minute**, so the default delay is
+16 seconds between requests. Use `--no-vt` to skip checks entirely, or
+`--vt-domains N` to also check up to `N` domains (`--vt-domains` alone means
+50; IP checks are always done when a key is present). A rate-limited request
+is retried once; if VirusTotal reports an exhausted quota (or rate-limits the
+retry too), the remaining IPs are skipped with a warning instead of stalling
+the run.
+
+---
+
+## Choosing what to analyze
+
+By default SNItch assumes the Windows-hotspot layout used by the original
+project: share your PC's connection with Windows Mobile Hotspot, connect the
+phone/device, and capture on the hotspot interface. Clients are then in
+`192.168.137.0/24` and the gateway is `192.168.137.1`.
+
+If that default matches **no clients at all**, SNItch falls back to
+`--auto-clients` (every private/local address in the capture), logs a warning
+and records it in the report. For **live** captures it first tries this
+machine's private IPv4 subnets, because the traffic comes from this machine.
+For capture **files** it does not look at this computer's network interfaces:
+a file may have been recorded elsewhere (a VM, a phone, a colleague), so they
+say nothing about it. Use `--detect-local` to add the local subnets on purpose.
+All candidates are evaluated in the same single tshark pass; the capture is
+never re-read.
+
+Every client in the dashboard's Clients tab, `data/analysis.json`
+(`clients[].selected_by`) and the About page shows why it was selected:
+`hotspot 192.168.137.0/24`, `src-ip`, `detected subnet …`, `auto (local
+address)` or `IPv6 of … (same MAC)`.
+
+**IPv6:** clients usually use global IPv6 addresses that no IPv4 network or
+`--src-ip` matches. SNItch learns each IPv4 client's MAC address (from its
+packets or DHCP lease) and attributes IPv6 traffic from that MAC to the same
+device, with a warning saying how many addresses were matched. MACs that
+forward public traffic (routers, the hotspot PC) are never used. This needs
+Ethernet/Wi-Fi headers in the capture, and IPv6 packets seen before the
+device's first IPv4 packet are missed. `--hotspot-net` also accepts IPv6
+prefixes.
+
+On other networks you can also pick one of these explicitly:
+
+| Option | Meaning |
 |---|---|
-| `--target example.com` | Marks that domain as "Target" in the classification. |
-| `--all` | Analyze every destination IP, including the laptop's traffic. |
-| `--src-ip 192.168.137.80` | Count only that IP's traffic (a specific phone). |
-| `--vt-key KEY` | Pass the API key via the command line (instead of the file). |
-| `--vt-delay 20` | Seconds to wait between VirusTotal queries (free tier = 16). |
-| `--handle @you` | Change the brand shown on the dashboard. |
+| `--src-ip IP[,IP]` | Only count traffic from these client IPs. |
+| `--auto-clients` | Treat every private/local address as a client (except gateways). |
+| `--detect-local` | Add this machine's private IPv4 subnets to the client networks. |
+| `--all` | Count every public destination, no client filtering. |
+| `--hotspot-net CIDR[,CIDR]` | Change the client network(s) for the default mode. |
+| `--gateway IP[,IP]` | Addresses never counted as clients. |
+| `--exclude-ip IP[,CIDR]` | Exclude addresses/networks (repeatable). |
+| `--min-packets N` | Ignore destinations seen in fewer than `N` packets. |
+| `--allowlist PATH` | Suppress findings for known-good IPs/CIDRs/domains. |
+| `--display-filter FILTER` | Extra tshark display filter, e.g. `tcp.port == 443`. |
+| `--since` / `--until` | Time range (ISO-8601 or epoch seconds). Times without a zone are **UTC**; Wireshark shows local time, so add an offset such as `+01:00`. |
 
-Each analysis creates a `name_date` subfolder, organized like this:
+### Suppress known-good traffic
 
-```
-name_date/
-├─ dashboard.html        # the file you open
-├─ <capture>.pcapng      # copy of the capture
-├─ data/                 # results.csv, results.json
-└─ domains/              # sni_hosts.txt, dns_queries.txt, classification.txt
-```
-
-## Build an executable (.exe)
-
-On Windows: `pyinstaller --onefile --name snitch --add-data "world.geo.json;." snitch.py`
-→ the executable lands in `dist\snitch.exe`. Copy your `vt_key.txt` next to it.
-
-On Linux/macOS the `--add-data` separator is `:` instead of `;`:
+Chatty updaters, analytics endpoints or your own infrastructure can drown the
+findings. Pass a text file with one entry per line (see
+`allowlist.example.txt`):
 
 ```bash
-pyinstaller --onefile --name snitch --add-data "world.geo.json:." snitch.py
+python3 snitch.py capture.pcapng --allowlist allowlist.txt
 ```
 
-> The `.exe` is not committed to the repo: to distribute it, attach it to a GitHub *Release*.
+```
+# IPs, CIDRs, IPv6 and domain suffixes all work
+203.0.113.10
+198.51.100.0/24
+example.com          # also matches cdn.example.com, not notexample.com
+*.telemetry.example.org
+```
 
-## Security
+A finding is suppressed when one of its domains matches, or when **every** IP
+it references matches. Matching is boundary-aware. Suppressed findings are
+excluded from totals but listed in the dashboard's Findings tab, `summary.txt`
+and `data/analysis.json`; raw destinations/domains are still reported
+normally. Tick **Include allowlisted** in the Findings toolbar to mix them back
+in (marked, with a notice in the details modal). Invalid entries fail fast with
+exit code 2.
 
-`vt_key.txt` holds your API key and is in `.gitignore`: **never commit it**.
+Add a bracketed modifier to scope an entry to finding categories. `only`
+suppresses just those categories; `except` suppresses everything else:
 
-## Note
+```
+backup.example.com [only: beaconing]           # quiet periodic backup
+203.0.113.0/24 [except: dns_anomaly, port_scan]  # keep the scary stuff
+```
 
-Educational project. Use it only on networks and devices you own.
+Valid categories are `beaconing`, `outbound_volume`, `dns_anomaly`,
+`port_scan`, `tor_like`, `tor_exit`, `cleartext`, `retransmissions`,
+`vt_malicious`, `vt_suspicious` and `vt_domain`; a typo is rejected.
+
+### Tune heuristic thresholds
+
+The detectors use conservative defaults. Pick a preset with
+`--profile {quiet,balanced,aggressive}` (`balanced` is the default), then
+override individual thresholds on the CLI or in `snitch.json` (underscored
+keys, e.g. `"beacon_min_events": 8`). Explicit values always win over the
+profile.
+
+The dashboard's About tab includes a threshold tuner: change the profile or
+individual values to preview the equivalent CLI command and download a matching
+`snitch.json`. Re-run SNItch to apply it.
+
+| Option | Default (balanced) | Effect |
+|---|---|---|
+| `--profile NAME` | `balanced` | Preset: `quiet`, `balanced` or `aggressive`. |
+| `--beacon-min-events N` | 5 | Connections before beaconing is considered. |
+| `--beacon-max-cv RATIO` | 0.50 | Maximum variation of intervals (lower = stricter). |
+| `--beacon-min-interval S` | 5 | Minimum median beacon interval. |
+| `--beacon-max-interval S` | 3600 | Maximum median beacon interval. |
+| `--exfil-min-bytes BYTES` | 5 MiB | Minimum upload volume for exfiltration. |
+| `--exfil-ratio RATIO` | 5 | Upload/download ratio for exfiltration. |
+| `--dns-min-unique N` | 20 | Unique subdomains before a DNS anomaly. |
+| `--scan-min-ports N` | 25 | Ports contacted before a port-scan finding. |
+| `--tor-max-destinations N` | 4 | Destination limit for the Tor-like check. |
+| `--tor-min-bytes BYTES` | 200 KiB | Traffic needed for a Tor-like finding. |
+
+Invalid or non-positive values exit with code 2, whether they come from the
+CLI or from `snitch.json`. Thresholds are also recorded in the HTML About page
+via the report metadata.
+
+---
+
+## Output
+
+Each run creates a timestamped folder:
+
+```
+<capture>_YYYY-MM-DD_HHMMSS/
+├─ dashboard.html          # open this — works offline
+├─ <capture>.pcapng        # copy of the analyzed capture
+├─ data/
+│  ├─ analysis.json        # full machine-readable report (v2)
+│  ├─ results.json         # 1.x-compatible flat results
+│  ├─ results.csv          # one row per destination
+│  ├─ domains.csv          # one row per domain
+│  ├─ flows.csv            # one row per aggregated flow
+│  ├─ dns.csv              # one row per query name/type
+│  ├─ findings.csv         # one row per finding
+│  └─ summary.txt          # human-readable summary
+└─ domains/
+   ├─ sni_hosts.txt        # TLS SNI / HTTP hosts
+   ├─ dns_queries.txt      # DNS names
+   └─ classification.txt   # domains grouped by category
+```
+
+Use `--out-dir DIR` to choose the parent folder, `--no-html` to skip the
+dashboard, and `--title` / `--handle` to brand the report.
+
+### Dashboard
+
+- World map with destination markers (zoom/pan, click for details)
+- Summary cards, traffic timeline and protocol/country/category charts
+- Searchable, sortable, paginated tables: destinations, clients, domains,
+  flows, DNS, findings
+- Clients tab with device names learned from DHCP, NetBIOS, mDNS and SMTP
+  HELO/EHLO when present
+- Findings panel with severity, confidence, evidence, ATT&CK references and
+  remediation guidance; finding IPs/domains and related flows are clickable
+  for fast pivoting, and each finding can highlight its time window on the
+  timeline
+- Destination details include hostnames, services, clients, TLS/ALPN, JA4
+  fingerprints and HTTP methods/user agents observed in cleartext
+- Large captures stay responsive: the dashboard embeds the top 5,000
+  destinations, domains, DNS pairs and flows, always keeping rows linked from
+  findings. Full data remains in `data/analysis.json` and the CSV exports.
+- About page with capture metadata and the exact filter used, including the
+  capture application, OS, hardware, encapsulation, interfaces and time order
+  reported by `capinfos` when it is installed
+- Strict Content-Security-Policy; **no network requests** at runtime
+
+---
+
+## Enrichment
+
+| Option | Effect |
+|---|---|
+| `--no-geo` | Skip geolocation lookups. |
+| `--no-rdns` | Skip reverse-DNS lookups. |
+| `--rdap` | Look up network ownership via RDAP. |
+| `--rdap-url TEMPLATE` | Use a custom RDAP endpoint (e.g. `https://rdap.arin.net/registry/ip/{ip}`); must contain `{ip}` and implies `--rdap`. Cached records from another provider are ignored. |
+| `--asn-db PATH` | Fill missing ASN/owner values from a local database: a MaxMind GeoLite2 ASN CSV, or a text/CSV file of `CIDR ASN Organisation` lines (`#` comments allowed). Works offline and never overrides online results. |
+| `--no-vt` | Skip VirusTotal (cached results are still used). |
+| `--check-tor-exits` | Download the Tor exit list and flag matching IPs. |
+| `--offline` | No network requests at all; use cache only. |
+| `--refresh` | Ignore cached values and query again. |
+| `--no-cache` | Do not read or write the enrichment cache. |
+| `--workers N` | Concurrent workers for geo/rDNS/RDAP (default 8). |
+| `--geo-failure-ttl HOURS` | Reuse recent geolocation failures instead of retrying every run (default 6; `--refresh` bypasses). |
+
+Results are cached in `enrichment_cache.json` in the output base folder, with a
+versioned schema and TTLs. A 1.x `ip_cache.json` is imported automatically on
+first run. Transient geolocation failures are cached separately from genuine
+"unknown" results, so a provider outage does not poison the 30-day cache. Each
+destination's `geo.status` distinguishes `ok`, `unknown` (the provider answered
+but had no record), `failed`, `failed_cached`, `offline`, `disabled`,
+`unavailable` and `local` (ASN/owner from `--asn-db`); the dashboard shows it in
+the destination details and CSV exports include `geo_status`/`geo_source`.
+VirusTotal requests stay sequential to respect free-tier limits.
+
+---
+
+## Configuration file
+
+Any long option can be set in `snitch.json` (or `--config PATH`) using
+underscores instead of dashes. CLI flags override the file. Start from
+`snitch.example.json`:
+
+```json
+{
+  "target": "example.com",
+  "auto_clients": true,
+  "allowlist": "allowlist.txt",
+  "vt_domains": 25,
+  "workers": 8,
+  "fail_on": "high"
+}
+```
+
+CLI options that are flags (e.g. `--all`) accept `true`/`false` in JSON.
+Values are validated like CLI values (an invalid `fail_on`, `profile` or
+threshold exits with code 2); keys starting with `_` are treated as comments.
+`snitch.json` is git-ignored because it may contain a key.
+
+---
+
+## Findings and exit codes
+
+Heuristics look for periodic beaconing, possible data exfiltration, DNS
+anomalies (long/high-entropy names, TXT/NULL abuse), vertical port scans
+(many ports on one public host), Tor/anonymising-proxy traffic, cleartext
+application protocols and elevated TCP retransmissions. Beaconing to known
+telemetry, update and analytics services is reported as low severity, since
+those check in on a schedule by design. VirusTotal and the Tor exit list add
+reputation findings (they also honour `--allowlist` and `--fail-on`).
+Every finding carries evidence, a confidence and score, MITRE ATT&CK
+references where applicable, and a short remediation playbook shown in the
+dashboard, `findings.csv` and `summary.txt`. In the dashboard, the finding
+modal compares the observed values with the active thresholds so it is obvious
+which condition fired.
+
+`--fail-on {none,info,low,medium,high,critical}` makes SNItch exit with
+**3** when a finding reaches that severity — useful in CI or scripts.
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Success. |
+| `1` | No usable capture/destinations, or an unexpected runtime error. |
+| `2` | Bad arguments, missing `tshark`, or unsupported input. |
+| `3` | `--fail-on` threshold reached. |
+| `130` | Interrupted (Ctrl-C). |
+
+---
+
+## Build a standalone executable
+
+```bash
+# Linux/macOS
+./scripts/build.sh
+
+# Windows
+scripts\build.bat
+```
+
+This uses `snitch.spec` and PyInstaller to produce `dist/snitch` (or
+`dist\snitch.exe`). The dashboard template and `world.geo.json` are embedded.
+Put `vt_key.txt` next to the executable if you want reputation checks. Builds
+are not committed: attach them to a GitHub *Release*.
+
+---
+
+## Development
+
+```bash
+python3 -m unittest discover -s tests -v   # 167 tests, no network/tshark needed
+python3 -m build                           # wheel + sdist
+```
+
+Layout:
+
+```
+snitch.py                 thin CLI wrapper (backwards compatible)
+snitchlib/
+  cli.py                  argument parsing, config, pipeline, exit codes
+  capture.py              tshark discovery, live capture, filters, capinfos
+  extract.py              single streaming pass, synthetic rows, aggregation
+  allowlist.py            parser/matcher for finding suppression
+  asndb.py                optional offline ASN database (GeoLite2/text)
+  classify.py             domain categories and base-domain logic
+  analyze.py              beaconing/exfil/DNS/port-scan/Tor/cleartext heuristics
+  enrich.py               geo, rDNS, RDAP, VirusTotal, Tor exits, cache
+  report.py               JSON/CSV/TXT + dashboard assembly
+  models.py, util.py      dataclasses, logging, JSON/cache/path helpers
+  templates/dashboard.html
+  world.geo.json
+tests/                    unit and integration tests (unittest)
+scripts/                  PyInstaller build helpers
+```
+
+CI runs the test suite on Python 3.9/3.11/3.13 (Linux) plus Windows and macOS,
+then builds and installs the wheel. See `CHANGELOG.md` for release notes.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| `tshark not found` | Install Wireshark/tshark, add it to `PATH`, or pass `--tshark /path/to/tshark`. |
+| Live capture fails or shows no packets | Capture usually needs root/Administrator. On Windows install Npcap and open an elevated shell. |
+| No clients found | The default filter is `192.168.137.0/24` (falling back to `--auto-clients` automatically); pass `--src-ip` or `--hotspot-net` to choose explicitly. |
+| Empty or very small report | Check `--since`/`--until`, `--display-filter`, `--min-packets`, and that the capture contains the client subnet. |
+| Domains missing for HTTPS/QUIC | ECH, encrypted DNS and some QUIC flows hide names; classification falls back to IP/ASN. |
+| VirusTotal finding looks stale | Cached results are reused even with `--no-vt`; pass `--refresh` or `--no-cache`. |
+| Rate-limit/timeout warnings | Free services throttle. Retry later, lower `--workers`, or use `--offline` with a warm cache. |
+| Dashboard is huge | The HTML embeds the top 5,000 destinations, domains, DNS pairs and flows (finding-linked rows are kept), and the About page shows the limits. Use the CSV/JSON exports for complete data. |
+| Wrong/no geolocation | ipwho.is is rate-limited; failures are cached as unknown. Retry with `--refresh` later. |
+
+## Privacy: what leaves your machine
+
+The capture file itself is never uploaded. Only enrichment metadata leaves the
+machine, and each lookup can be disabled:
+
+| Feature | Data sent | Destination | Disable with |
+|---|---|---|---|
+| Geolocation (on by default) | Destination IP | `ipwho.is`, fallback `ipapi.co` | `--no-geo` or `--offline` |
+| Reverse DNS (on by default) | Destination IP | Your configured system resolver | `--no-rdns` or `--offline` |
+| RDAP (off by default) | Destination IP | `rdap.org` | omit `--rdap`, or `--offline` |
+| VirusTotal (off without a key) | IP/domain | `virustotal.com` | `--no-vt` or `--offline` |
+| Tor exit list (off by default) | No capture data | `check.torproject.org` | omit `--check-tor-exits`, or `--offline` |
+
+---
+
+## Security and privacy
+
+- The capture copy stays in the results folder; delete it if it is sensitive.
+- `vt_key.txt`, `snitch.json` and generated result folders are git-ignored.
+- The dashboard embeds all data and assets locally — it loads nothing from the
+  internet and ships with a restrictive CSP.
+- Enrichment sends destination IPs/domains to third parties (ipwho.is, DNS,
+  RDAP, VirusTotal) unless you pass `--offline`/`--no-geo`/`--no-vt`.
+- Educational project: only capture and analyze networks/devices you own or
+  are authorized to test.
