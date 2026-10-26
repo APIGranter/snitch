@@ -1170,7 +1170,8 @@ function applySortFilter(name){
       return !q || [row.domain,row.base,row.category,...Object.keys(row.ips||{})].join(" ").toLowerCase().includes(q);
     }
     if (name === "clients") {
-      return !q || [row.ip,
+      return !q || [row.ip, row.selected_by || "", ...(row.macs||[]),
+        ...Object.keys(row.hostnames||{}),
         ...(row.top_domains||[]).map(x => x.domain),
         ...(row.top_destinations||[]).map(x => x.ip),
       ].join(" ").toLowerCase().includes(q);
@@ -1259,8 +1260,11 @@ function drawClients(){
   tbody.innerHTML = rows.map((row) => {
     const topDomains = (row.top_domains || []).map(x => x.domain);
     const names = Object.keys(row.hostnames || {});
+    // Mark why the address counts as a client; hotspot clients stand out.
+    const why = String(row.selected_by || "");
+    const whyTag = why ? `<br><span class="pill ${why.startsWith("hotspot") ? "low" : "info"}" title="Why this address counts as a client">${esc(why)}</span>` : "";
     return `<tr>
-      <td class="mono">${esc(row.ip)}</td>
+      <td class="mono">${esc(row.ip)}${whyTag}</td>
       <td>${names.length ? `<span title="${esc(names.join(", "))}">${esc(names[0])}</span>${names.length > 1 ? `<br><span class="muted">+${names.length-1} more</span>` : ""}` : '<span class="muted">–</span>'}</td>
       <td class="num">${fmtNum(row.packets)}</td>
       <td class="num">${fmtBytes(row.bytes)}<br><span class="muted">↑${fmtBytes(row.bytes_out)} ↓${fmtBytes(row.bytes_in)}</span></td>
@@ -1424,7 +1428,11 @@ function actionLinks(dest){
     actions.push(`<a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=6/${lat}/${lon}">OpenStreetMap</a>`);
   }
   if (dest.rdap && dest.rdap.name) {
-    const rdap = `https://rdap.org/ip/${encodeURIComponent(dest.ip)}`;
+    // Link to the provider that produced the record (--rdap-url), not always rdap.org.
+    const enrRdap = ((REPORT.meta || {}).enrichment || {}).rdap || {};
+    let template = String(enrRdap.template || "https://rdap.org/ip/{ip}");
+    if (!/^https?:\/\//i.test(template) || !template.includes("{ip}")) template = "https://rdap.org/ip/{ip}";
+    const rdap = template.split("{ip}").join(encodeURIComponent(dest.ip));
     actions.push(`<a class="btn sec" target="_blank" rel="noopener noreferrer" href="${esc(rdap)}">RDAP record</a>`);
   }
   return `<div class="modal-actions">${actions.join("")}</div>`;
@@ -1830,7 +1838,8 @@ function renderAbout(){
       return rows;
     })(),
     ["Mode", m.mode || "–"], ["Target", m.target || "–"], ["tshark", m.tshark_version || m.tshark || "–"],
-    ...(m.auto_clients ? [["Client selection", "auto · every private address"]] :
+    ...(m.client_selection ? [["Client selection", m.client_selection + (m.client_fallback ? " (fallback: the hotspot network matched no clients)" : "")]] :
+        m.auto_clients ? [["Client selection", "auto · every private address"]] :
         (m.detected_networks || []).length ? [["Client selection", "detected · " + m.detected_networks.join(", ")]] :
         [["Client selection", (m.client_networks || []).join(", ") || "–"]]),
     ["Generated", (m.generated_iso || "") + " UTC"], ["Tool", "SNItch " + (m.version || "")],

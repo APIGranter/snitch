@@ -10,7 +10,7 @@ Command output is parsed leniently for the three common platforms:
 
 * Linux: ``ip -o -4 addr show`` (preferred) or ``ifconfig``
 * macOS/BSD: ``ifconfig``
-* Windows: ``ipconfig``
+* Windows: ``ipconfig`` (any display language / OEM code page)
 
 Anything unexpected is ignored; the result is only a hint, never a hard
 failure.  Loopback, link-local and public addresses are discarded.
@@ -23,14 +23,15 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 from typing import Iterable, List
 
 IPv4Network = ipaddress.IPv4Network
 
 _INET_RE = re.compile(r"\binet(?:6)?\s+(?:addr:)?(\d+\.\d+\.\d+\.\d+)(?:/(\d+))?")
 _MASK_RE = re.compile(r"\b(?:netmask|Mask)\s*:?\s*(\d+\.\d+\.\d+\.\d+|0x[0-9a-fA-F]+)")
-_IPCONFIG_ADDR_RE = re.compile(r"IPv4[^:]*:\s*(\d+\.\d+\.\d+\.\d+)")
-_IPCONFIG_MASK_RE = re.compile(r"Subnet Mask[^:]*:\s*(\d+\.\d+\.\d+\.\d+)")
+#: ``<label> . . . : a.b.c.d`` lines; the value may carry "(Preferred)" etc.
+_IPCONFIG_VALUE_RE = re.compile(r"^(?P<label>[^:]*):\s*(?P<ip>\d+\.\d+\.\d+\.\d+)")
 
 
 def _is_usable(network: IPv4Network) -> bool:
@@ -87,17 +88,40 @@ def parse_ifconfig(text: str) -> List[IPv4Network]:
     return sorted(networks, key=lambda n: (int(n.network_address), n.prefixlen))
 
 
+def _is_netmask(value: str) -> bool:
+    """True for contiguous dotted masks such as 255.255.255.0."""
+    if not value.startswith("255."):
+        return False
+    try:
+        ipaddress.IPv4Network(f"0.0.0.0/{value}")
+    except ValueError:
+        return False
+    return True
+
+
 def parse_ipconfig(text: str) -> List[IPv4Network]:
-    """Parse Windows ``ipconfig`` output (English labels)."""
-    addresses = _IPCONFIG_ADDR_RE.findall(text or "")
-    masks = _IPCONFIG_MASK_RE.findall(text or "")
+    """Parse Windows ``ipconfig`` output in any display language.
+
+    Labels are localized ("Subnet Mask", "Máscara de subred", "Subnetzmaske"),
+    so only "IPv4" (which every translation keeps) is matched; the mask is
+    the next value that is a valid contiguous netmask.
+    """
     networks = set()
-    for index, address in enumerate(addresses):
-        mask = masks[index] if index < len(masks) else "255.255.255.0"
-        try:
-            networks.add(ipaddress.IPv4Network(f"{address}/{mask}", strict=False))
-        except ValueError:
+    pending = ""
+    for line in (text or "").splitlines():
+        match = _IPCONFIG_VALUE_RE.match(line.strip())
+        if not match:
             continue
+        value = match.group("ip")
+        if "ipv4" in match.group("label").lower():
+            if pending:
+                networks.add(ipaddress.IPv4Network(f"{pending}/24", strict=False))
+            pending = value
+        elif pending and _is_netmask(value):
+            networks.add(ipaddress.IPv4Network(f"{pending}/{value}", strict=False))
+            pending = ""
+    if pending:
+        networks.add(ipaddress.IPv4Network(f"{pending}/24", strict=False))
     return sorted(networks, key=lambda n: (int(n.network_address), n.prefixlen))
 
 
@@ -110,13 +134,37 @@ def parse_output(platform: str, text: str) -> List[IPv4Network]:
     return parse_ip_addr(text) or parse_ifconfig(text)
 
 
+def _console_encoding() -> str:
+    """Encoding used by console tools such as ``ipconfig``.
+
+    Windows tools write in the OEM code page (cp850 on Spanish systems), not
+    UTF-8, even when Python itself runs in UTF-8 mode.
+    """
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            return f"cp{ctypes.windll.kernel32.GetConsoleOutputCP() or ctypes.windll.kernel32.GetOEMCP()}"
+        except Exception:  # pragma: no cover - exotic Windows setups
+            return "oem"
+    return "utf-8"
+
+
 def _run(command: List[str]) -> str:
     try:
-        proc = subprocess.run(command, capture_output=True, text=True,
-                              timeout=5, check=False)
+        proc = subprocess.run(command, capture_output=True, timeout=5, check=False)
     except (OSError, subprocess.SubprocessError):
         return ""
-    return proc.stdout if proc.returncode == 0 else ""
+    if proc.returncode != 0:
+        return ""
+    return decode_output(proc.stdout, _console_encoding())
+
+
+def decode_output(raw: bytes, encoding: str) -> str:
+    """Decode command output without ever raising (labels may be lost)."""
+    try:
+        return raw.decode(encoding, errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
 
 
 def _socket_networks() -> List[IPv4Network]:

@@ -1,7 +1,6 @@
 include README.md
 include LICENSE
 include CHANGELOG.md
-include HANDOFF.md
 include snitch.example.json
 include allowlist.example.txt
 include snitch.spec

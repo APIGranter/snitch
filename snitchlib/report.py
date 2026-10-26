@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import tempfile
 from collections import Counter
 from dataclasses import asdict
@@ -63,7 +64,7 @@ def _destination_category(dest: Destination, analysis: Analysis, target: str) ->
 
 
 def _domain_hits(stat: DomainStat) -> int:
-    return sum(stat.sources.values()) or stat.count or 1
+    return sum(stat.sources.values()) or 1
 
 
 def _top(counter: Counter, n: int = 10) -> List[Dict[str, Any]]:
@@ -180,6 +181,7 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
             "bytes_out": dest.bytes_out,
             "bytes_in": dest.bytes_in,
             "retransmissions": dest.retransmissions,
+            "tcp_packets": dest.tcp_packets,
             "syn_count": dest.syn_count,
             "first_seen": dest.first_seen,
             "last_seen": dest.last_seen,
@@ -231,6 +233,8 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
     for client in sorted(analysis.clients.values(), key=lambda c: c.bytes, reverse=True):
         client_rows.append({
             "ip": client.ip,
+            "selected_by": client.selected_by,
+            "macs": sorted(client.macs),
             "hostnames": dict(client.hostnames.most_common(5)),
             "packets": client.packets,
             "packets_out": client.packets_out,
@@ -285,8 +289,11 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
             "first_seen": stat.first_seen,
             "last_seen": stat.last_seen,
             "response_ms": round(stat.response_time_ms, 2),
+            "max_response_ms": round(stat.max_response_time_ms, 2),
         })
 
+    # Findings, flows and DNS rows are kept complete here; only the embedded
+    # dashboard payload is capped (see dashboard_payload).
     findings = []
     for finding in analysis.findings:
         row = asdict(finding)
@@ -295,7 +302,6 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
             row["window"] = window
         findings.append(row)
     findings.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), -f.get("score", 0)))
-    findings = findings[:MAX_DASHBOARD_FINDINGS]
     suppressed = []
     for finding in analysis.suppressed_findings:
         row = asdict(finding)
@@ -304,7 +310,6 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
             row["window"] = window
         suppressed.append(row)
     suppressed.sort(key=lambda f: (-SEVERITY_ORDER.get(f["severity"], 0), -f.get("score", 0)))
-    suppressed = suppressed[:MAX_DASHBOARD_FINDINGS]
     findings_by_severity = Counter(f["severity"] for f in findings)
     anomaly_bases = sorted({
         domain for f in findings
@@ -343,6 +348,7 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
             "domain_rows": MAX_DOMAIN_ROWS,
             "dns_rows": MAX_DNS_ROWS,
             "flow_rows": MAX_FLOW_ROWS,
+            "findings": MAX_DASHBOARD_FINDINGS,
         },
     })
 
@@ -380,11 +386,12 @@ def build_report(analysis: Analysis, handle: str = "", title: str = "",
         "domains_total": len(domain_rows),
         "clients": client_rows,
         "clients_total": len(client_rows),
-        "flows": flow_rows[:MAX_FLOW_ROWS],
+        "flows": flow_rows,
         "flows_total": len(flow_rows),
-        "dns": dns_rows[:MAX_DNS_ROWS],
+        "dns": dns_rows,
         "dns_total": len(dns_rows),
         "findings": findings,
+        "findings_total": len(findings),
         "suppressed": suppressed,
         "dns_anomaly_bases": anomaly_bases,
         "timeline": _timeline(analysis),
@@ -516,7 +523,7 @@ def save_flows_csv(report: Dict[str, Any], path: str) -> None:
 
 def save_dns_csv(report: Dict[str, Any], path: str) -> None:
     fields = ["qname", "base", "qtype", "count", "answers", "clients",
-              "response_ms", "first_seen", "last_seen"]
+              "response_ms", "max_response_ms", "first_seen", "last_seen"]
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -529,6 +536,7 @@ def save_dns_csv(report: Dict[str, Any], path: str) -> None:
                 "answers": ";".join(row["answers"]),
                 "clients": ";".join(row["clients"]),
                 "response_ms": row["response_ms"],
+                "max_response_ms": row.get("max_response_ms", ""),
                 "first_seen": iso_utc(row["first_seen"]),
                 "last_seen": iso_utc(row["last_seen"]),
             })
@@ -563,7 +571,8 @@ def save_summary_txt(report: Dict[str, Any], analysis: Analysis, path: str) -> N
         f"{summary.get('analyzed_packets', 0):,} analyzed",
         f"Traffic     : {human_bytes(summary.get('bytes'))} total, "
         f"{human_bytes(summary.get('analyzed_bytes'))} analyzed",
-        f"Selection   : mode={meta.get('mode', '?')}  target={meta.get('target') or '-'}",
+        f"Selection   : mode={meta.get('mode', '?')}  target={meta.get('target') or '-'}"
+        + (f"  clients={meta['client_selection']}" if meta.get("client_selection") else ""),
         f"Clients     : {', '.join(analysis.capture.get('clients_detected', {})) or '-'}",
         "",
         "Summary",
@@ -695,12 +704,19 @@ def dashboard_payload(report: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(report)
     payload["destinations"] = dest_view
     payload["domains"] = domain_view
+    payload["flows"] = list(report.get("flows") or [])[:MAX_FLOW_ROWS]
+    payload["dns"] = list(report.get("dns") or [])[:MAX_DNS_ROWS]
+    payload["findings"] = list(report.get("findings") or [])[:MAX_DASHBOARD_FINDINGS]
+    payload["suppressed"] = list(report.get("suppressed") or [])[:MAX_DASHBOARD_FINDINGS]
     # ``classification`` repeats every domain grouped by category and
     # ``category_hits`` duplicates the chart totals; both are only used by the
     # text/JSON exports, so skip them in the embedded dashboard JSON.
     payload.pop("classification", None)
     payload.pop("category_hits", None)
     return payload
+
+
+_PLACEHOLDER_RE = re.compile(r"/\*__(?:REPORT|GEO)__\*/")
 
 
 def build_dashboard(report: Dict[str, Any], out_html: str,
@@ -724,9 +740,13 @@ def build_dashboard(report: Dict[str, Any], out_html: str,
         logger.warn(f"world.geo.json not found ({geo_path}); the map will be empty.")
         geojson = '{"type":"FeatureCollection","features":[]}'
 
-    html = template
-    html = html.replace("/*__REPORT__*/", safe_json_dumps(dashboard_payload(report)))
-    html = html.replace("/*__GEO__*/", geojson)
+    # Substitute both placeholders in a single pass: capture data (e.g. an HTTP
+    # User-Agent of "/*__GEO__*/") must never be treated as a placeholder.
+    replacements = {
+        "/*__REPORT__*/": safe_json_dumps(dashboard_payload(report)),
+        "/*__GEO__*/": geojson,
+    }
+    html = _PLACEHOLDER_RE.sub(lambda match: replacements[match.group(0)], template)
     _write_text_atomic(out_html, html)
     logger.info(f"Dashboard saved: {out_html}")
     return out_html

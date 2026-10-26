@@ -91,26 +91,51 @@ With no capture argument, a file picker opens if Tkinter is available.
 Provide it in one of these ways (first match wins):
 
 1. `--vt-key KEY`
-2. `vt_key.txt` next to where you run the command (see `vt_key.example.txt`)
-3. the `VT_API_KEY` environment variable
+2. the `VT_API_KEY` environment variable
+3. `vt_key.txt` next to where you run the command (see `vt_key.example.txt`)
 
 Free-tier keys are limited to **4 requests/minute**, so the default delay is
 16 seconds between requests. Use `--no-vt` to skip checks entirely, or
-`--vt-domains N` to also check up to `N` domains (IP checks are always done
-when a key is present).
+`--vt-domains N` to also check up to `N` domains (`--vt-domains` alone means
+50; IP checks are always done when a key is present). A rate-limited request
+is retried once; if VirusTotal reports an exhausted quota (or rate-limits the
+retry too), the remaining IPs are skipped with a warning instead of stalling
+the run.
 
 ---
 
 ## Choosing what to analyze
 
 By default SNItch assumes the Windows-hotspot layout used by the original
-project: clients in `192.168.137.0/24` and gateway `192.168.137.1`. If that
-default matches **no clients at all**, SNItch looks at this machine's private
-IPv4 subnets and retries with them; if those match nothing too, it retries
-once with `--auto-clients`. Each step is logged and recorded as a warning.
-`--detect-local` also adds the local subnets up front (useful when analysing a
-capture taken on this machine). On other networks you can also pick one of
-these explicitly:
+project: share your PC's connection with Windows Mobile Hotspot, connect the
+phone/device, and capture on the hotspot interface. Clients are then in
+`192.168.137.0/24` and the gateway is `192.168.137.1`.
+
+If that default matches **no clients at all**, SNItch falls back to
+`--auto-clients` (every private/local address in the capture), logs a warning
+and records it in the report. For **live** captures it first tries this
+machine's private IPv4 subnets, because the traffic comes from this machine.
+For capture **files** it does not look at this computer's network interfaces:
+a file may have been recorded elsewhere (a VM, a phone, a colleague), so they
+say nothing about it. Use `--detect-local` to add the local subnets on purpose.
+All candidates are evaluated in the same single tshark pass; the capture is
+never re-read.
+
+Every client in the dashboard's Clients tab, `data/analysis.json`
+(`clients[].selected_by`) and the About page shows why it was selected:
+`hotspot 192.168.137.0/24`, `src-ip`, `detected subnet …`, `auto (local
+address)` or `IPv6 of … (same MAC)`.
+
+**IPv6:** clients usually use global IPv6 addresses that no IPv4 network or
+`--src-ip` matches. SNItch learns each IPv4 client's MAC address (from its
+packets or DHCP lease) and attributes IPv6 traffic from that MAC to the same
+device, with a warning saying how many addresses were matched. MACs that
+forward public traffic (routers, the hotspot PC) are never used. This needs
+Ethernet/Wi-Fi headers in the capture, and IPv6 packets seen before the
+device's first IPv4 packet are missed. `--hotspot-net` also accepts IPv6
+prefixes.
+
+On other networks you can also pick one of these explicitly:
 
 | Option | Meaning |
 |---|---|
@@ -124,7 +149,7 @@ these explicitly:
 | `--min-packets N` | Ignore destinations seen in fewer than `N` packets. |
 | `--allowlist PATH` | Suppress findings for known-good IPs/CIDRs/domains. |
 | `--display-filter FILTER` | Extra tshark display filter, e.g. `tcp.port == 443`. |
-| `--since` / `--until` | Time range (ISO-8601 or epoch seconds). |
+| `--since` / `--until` | Time range (ISO-8601 or epoch seconds). Times without a zone are **UTC**; Wireshark shows local time, so add an offset such as `+01:00`. |
 
 ### Suppress known-good traffic
 
@@ -190,8 +215,9 @@ individual values to preview the equivalent CLI command and download a matching
 | `--tor-max-destinations N` | 4 | Destination limit for the Tor-like check. |
 | `--tor-min-bytes BYTES` | 200 KiB | Traffic needed for a Tor-like finding. |
 
-Invalid or non-positive values exit with code 2. Thresholds are also recorded
-in the HTML About page via the report metadata.
+Invalid or non-positive values exit with code 2, whether they come from the
+CLI or from `snitch.json`. Thresholds are also recorded in the HTML About page
+via the report metadata.
 
 ---
 
@@ -292,6 +318,8 @@ underscores instead of dashes. CLI flags override the file. Start from
 ```
 
 CLI options that are flags (e.g. `--all`) accept `true`/`false` in JSON.
+Values are validated like CLI values (an invalid `fail_on`, `profile` or
+threshold exits with code 2); keys starting with `_` are treated as comments.
 `snitch.json` is git-ignored because it may contain a key.
 
 ---
@@ -299,9 +327,12 @@ CLI options that are flags (e.g. `--all`) accept `true`/`false` in JSON.
 ## Findings and exit codes
 
 Heuristics look for periodic beaconing, possible data exfiltration, DNS
-anomalies (long/high-entropy names, TXT abuse), horizontal port scans,
-Tor/anonymising-proxy traffic, cleartext application protocols and elevated
-TCP retransmissions. VirusTotal and the Tor exit list add reputation findings.
+anomalies (long/high-entropy names, TXT/NULL abuse), vertical port scans
+(many ports on one public host), Tor/anonymising-proxy traffic, cleartext
+application protocols and elevated TCP retransmissions. Beaconing to known
+telemetry, update and analytics services is reported as low severity, since
+those check in on a schedule by design. VirusTotal and the Tor exit list add
+reputation findings (they also honour `--allowlist` and `--fail-on`).
 Every finding carries evidence, a confidence and score, MITRE ATT&CK
 references where applicable, and a short remediation playbook shown in the
 dashboard, `findings.csv` and `summary.txt`. In the dashboard, the finding
@@ -367,8 +398,7 @@ scripts/                  PyInstaller build helpers
 ```
 
 CI runs the test suite on Python 3.9/3.11/3.13 (Linux) plus Windows and macOS,
-then builds and installs the wheel. See `HANDOFF.md` for the current status and
-the backlog.
+then builds and installs the wheel. See `CHANGELOG.md` for release notes.
 
 ---
 
@@ -378,7 +408,7 @@ the backlog.
 |---|---|
 | `tshark not found` | Install Wireshark/tshark, add it to `PATH`, or pass `--tshark /path/to/tshark`. |
 | Live capture fails or shows no packets | Capture usually needs root/Administrator. On Windows install Npcap and open an elevated shell. |
-| No clients found | The default filter is `192.168.137.0/24`; pass `--auto-clients`, `--src-ip`, or `--hotspot-net`. |
+| No clients found | The default filter is `192.168.137.0/24` (falling back to `--auto-clients` automatically); pass `--src-ip` or `--hotspot-net` to choose explicitly. |
 | Empty or very small report | Check `--since`/`--until`, `--display-filter`, `--min-packets`, and that the capture contains the client subnet. |
 | Domains missing for HTTPS/QUIC | ECH, encrypted DNS and some QUIC flows hide names; classification falls back to IP/ASN. |
 | VirusTotal finding looks stale | Cached results are reused even with `--no-vt`; pass `--refresh` or `--no-cache`. |

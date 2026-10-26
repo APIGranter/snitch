@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import pathlib
 import re
 import sys
 import tempfile
@@ -42,13 +43,15 @@ class Logger:
             sys.stdout.isatty()
             and os.environ.get("NO_COLOR") is None
             and os.environ.get("TERM") != "dumb"
+            and _enable_ansi()
         )
 
     def _emit(self, level: str, msg: str) -> None:
         colour = self.COLOURS.get(level, "") if self.color else ""
         reset = self.RESET if colour else ""
         stamp = f"{datetime.now():%H:%M:%S}"
-        stream = sys.stderr if level == "error" else sys.stdout
+        # Warnings go to stderr with errors so stdout can be piped cleanly.
+        stream = sys.stderr if level in ("warn", "error") else sys.stdout
         print(f"{colour}[{stamp}] {msg}{reset}", file=stream, flush=True)
 
     def debug(self, msg: str) -> None:
@@ -68,6 +71,33 @@ class Logger:
 
     def error(self, msg: str) -> None:
         self._emit("error", msg)
+
+
+_ANSI_STATE: Optional[bool] = None
+
+
+def _enable_ansi() -> bool:
+    """Make sure the console understands ANSI colours (once per process).
+
+    The legacy Windows console prints escape codes literally (``←[33m``)
+    unless virtual-terminal processing is switched on.
+    """
+    global _ANSI_STATE
+    if _ANSI_STATE is None:
+        _ANSI_STATE = True
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+                mode = ctypes.c_uint32()
+                if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                    _ANSI_STATE = False
+                elif not mode.value & 0x0004:  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+                    _ANSI_STATE = bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+            except Exception:
+                _ANSI_STATE = False
+    return _ANSI_STATE
 
 
 # A default logger so library functions can be called without wiring one up.
@@ -246,7 +276,8 @@ def resource_path(name: str) -> str:
 
 def open_in_browser(path: str) -> bool:
     try:
-        return bool(webbrowser.open("file://" + os.path.abspath(path)))
+        # as_uri() percent-encodes '#', '%', spaces and non-ASCII characters.
+        return bool(webbrowser.open(pathlib.Path(path).resolve().as_uri()))
     except Exception:
         return False
 

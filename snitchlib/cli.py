@@ -20,8 +20,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from . import APP_NAME, __version__
 from .analyze import (
-    HEURISTIC_PROFILES, AnalysisOptions, apply_categories, profile_thresholds,
-    run_heuristics, run_threat_intel, sort_findings,
+    HEURISTIC_PROFILES, AnalysisOptions, apply_categories, apply_threat_intel,
+    profile_thresholds, run_heuristics, sort_findings,
 )
 from .allowlist import Allowlist, AllowlistError
 from .asndb import AsnDatabase, apply_asn_db
@@ -32,7 +32,9 @@ from .capture import (
 )
 from .classify import normalize_target
 from .enrich import EnrichOptions, enrich
-from .extract import ExtractionOptions, extract, parse_networks
+from .extract import (
+    WINDOWS_HOTSPOT_NET, ExtractionOptions, extract_first_match, parse_networks,
+)
 from .models import SEVERITY_ORDER
 from .netinfo import format_networks, local_ipv4_networks
 from .report import build_dashboard, build_report, save_all
@@ -48,7 +50,7 @@ DEFAULTS: Dict[str, Any] = {
     "handle": "@APIGranter",
     "title": "",
     "target": "",
-    "hotspot_net": "192.168.137.0/24",
+    "hotspot_net": WINDOWS_HOTSPOT_NET,
     "gateway": "192.168.137.1",
     "src_ip": "",
     "all": False,
@@ -265,9 +267,18 @@ def _extract_config_arg(argv: Sequence[str]) -> Optional[str]:
 
 def _apply_config(parser: argparse.ArgumentParser, raw: Dict[str, Any],
                   logger: Logger) -> None:
+    """Use config values as parser defaults, validated like CLI values.
+
+    argparse never checks ``choices`` or ``type`` for defaults, so an invalid
+    value would otherwise survive until deep into the pipeline.  Invalid
+    values raise ``ValueError`` (exit code 2); keys starting with ``_`` are
+    comments (``"_comment"`` in snitch.example.json) and are skipped.
+    """
     actions = {action.dest: action for action in parser._actions}
     defaults: Dict[str, Any] = {}
     for key, value in raw.items():
+        if str(key).startswith("_"):
+            continue
         dest = str(key).strip().replace("-", "_")
         action = actions.get(dest)
         if action is None:
@@ -276,13 +287,18 @@ def _apply_config(parser: argparse.ArgumentParser, raw: Dict[str, Any],
         try:
             if isinstance(action, (argparse._StoreTrueAction,
                                    argparse._StoreFalseAction)):
-                defaults[dest] = _as_bool(value)
+                converted = _as_bool(value)
             elif action.type is not None and not isinstance(value, list):
-                defaults[dest] = action.type(value)
+                converted = action.type(value) if value is not None else None
             else:
-                defaults[dest] = value
-        except (TypeError, ValueError) as exc:
-            logger.warn(f"config: invalid value for {key!r}: {exc}")
+                converted = value
+        except (TypeError, ValueError, argparse.ArgumentTypeError) as exc:
+            raise ValueError(f"config: invalid value for {key!r}: {exc}") from None
+        if action.choices is not None and converted not in action.choices:
+            choices = ", ".join(map(str, action.choices))
+            raise ValueError(
+                f"config: invalid value for {key!r}: {value!r} (choose from {choices})")
+        defaults[dest] = converted
     parser.set_defaults(**defaults)
 
 
@@ -329,18 +345,20 @@ def build_parser() -> argparse.ArgumentParser:
     source = parser.add_argument_group("capture source")
     source.add_argument("--live", nargs="?", const="auto", metavar="IFACE",
                         help="Capture live traffic (optionally on IFACE; default: auto).")
-    source.add_argument("--duration", type=int, metavar="SECONDS",
+    source.add_argument("--duration", type=_positive_int, metavar="SECONDS",
                         help="Stop a live capture after SECONDS.")
-    source.add_argument("--packet-limit", type=int, metavar="N",
-                        help="Stop a live capture after N packets (files: read at most N).")
+    source.add_argument("--packet-limit", type=_positive_int, metavar="N",
+                        help="Stop a live capture after N packets (files: analyze at "
+                             "most N packets that pass the display filter).")
     source.add_argument("--list-interfaces", action="store_true",
                         help="List tshark capture interfaces and exit.")
     source.add_argument("--tshark", metavar="PATH",
                         help="Path to tshark when it is not auto-detected.")
     source.add_argument("--since", metavar="TIME",
-                        help="Only analyze packets at/after this time (ISO-8601 or epoch).")
+                        help="Only analyze packets at/after this time (ISO-8601 or epoch; "
+                             "times without a zone are UTC, e.g. 2026-01-31T12:00:00+01:00).")
     source.add_argument("--until", metavar="TIME",
-                        help="Only analyze packets at/before this time (ISO-8601 or epoch).")
+                        help="Only analyze packets at/before this time (same format as --since).")
     source.add_argument("--display-filter", default="", metavar="FILTER",
                         help="Extra tshark display filter, e.g. 'tcp.port == 443'.")
 
@@ -355,15 +373,17 @@ def build_parser() -> argparse.ArgumentParser:
     selection.add_argument("--auto-clients", action="store_true",
                            help="Treat every private/local address as a client (except gateways).")
     selection.add_argument("--detect-local", action="store_true",
-                           help="Add this machine's local IPv4 subnets to --hotspot-net.")
-    selection.add_argument("--hotspot-net", default="192.168.137.0/24",
+                           help="Add this machine's local IPv4 subnets to --hotspot-net "
+                                "(useful for captures taken on this machine).")
+    selection.add_argument("--hotspot-net", default=WINDOWS_HOTSPOT_NET,
                            metavar="CIDR[,CIDR]",
-                           help="Client network(s) in the default client mode.")
+                           help="Client network(s) in the default client mode "
+                                "(IPv4 or IPv6 prefixes).")
     selection.add_argument("--gateway", default="192.168.137.1", metavar="IP[,IP]",
                            help="Gateway address(es) never counted as clients.")
     selection.add_argument("--exclude-ip", action="append", metavar="IP[,CIDR]",
                            help="Exclude destination/client addresses (repeatable).")
-    selection.add_argument("--min-packets", type=int, default=1, metavar="N",
+    selection.add_argument("--min-packets", type=_positive_int, default=1, metavar="N",
                            help="Ignore destinations with fewer than N packets.")
     selection.add_argument("--allowlist", default="", metavar="PATH",
                            help="Text file of IPs/CIDRs/domains whose findings are suppressed.")
@@ -378,7 +398,8 @@ def build_parser() -> argparse.ArgumentParser:
                               help="Delay between VirusTotal requests (free tier: 16).")
     enrich_group.add_argument("--vt-domains", nargs="?", const=50, type=int,
                               default=0, metavar="N",
-                              help="Also check up to N domains on VirusTotal (default: off).")
+                              help="Also check up to N domains on VirusTotal "
+                                   "(default: off; the flag alone means 50).")
     enrich_group.add_argument("--no-vt", action="store_true",
                               help="Do not query VirusTotal (cached results are still used).")
     enrich_group.add_argument("--no-geo", action="store_true",
@@ -402,7 +423,7 @@ def build_parser() -> argparse.ArgumentParser:
                               help="Ignore cached enrichment and query again.")
     enrich_group.add_argument("--no-cache", action="store_true",
                               help="Do not read or write the enrichment cache.")
-    enrich_group.add_argument("--workers", type=int, default=8, metavar="N",
+    enrich_group.add_argument("--workers", type=_positive_int, default=8, metavar="N",
                               help="Concurrent workers for geo/rDNS/RDAP (default: 8).")
     enrich_group.add_argument("--geo-failure-ttl", type=_positive_float,
                               default=6.0, metavar="HOURS",
@@ -485,11 +506,8 @@ def _client_options(args: argparse.Namespace) -> ExtractionOptions:
     else:
         mode = "client"
 
-    try:
-        client_networks = parse_networks(_csv_values(args.hotspot_net))
-        exclude_networks = parse_networks(_csv_values(args.exclude_ip))
-    except ValueError as exc:
-        raise ValueError(str(exc))
+    client_networks = parse_networks(_csv_values(args.hotspot_net))
+    exclude_networks = parse_networks(_csv_values(args.exclude_ip))
 
     return ExtractionOptions(
         mode=mode,
@@ -517,11 +535,14 @@ def _add_detected_networks(options: ExtractionOptions,
         return options
     seen = {str(network) for network in options.client_networks}
     merged = list(options.client_networks)
+    added = []
     for network in networks:
         if str(network) not in seen:
             merged.append(network)
+            added.append(network)
             seen.add(str(network))
-    return replace(options, client_networks=merged)
+    return replace(options, client_networks=merged,
+                   detected_networks=list(options.detected_networks) + added)
 
 
 def _analysis_options(args: argparse.Namespace,
@@ -559,7 +580,9 @@ def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
                   interface: str = "",
                   client_networks: Optional[Sequence[Any]] = None,
                   auto_clients: bool = False,
-                  detected_networks: Optional[Sequence[Any]] = None) -> Dict[str, Any]:
+                  detected_networks: Optional[Sequence[Any]] = None,
+                  client_selection: str = "",
+                  client_fallback: bool = False) -> Dict[str, Any]:
     effective_networks = (
         [str(network) for network in client_networks]
         if client_networks is not None else _csv_values(args.hotspot_net)
@@ -579,6 +602,8 @@ def _capture_meta(args: argparse.Namespace, tshark: str, source: str,
         "excluded": _csv_values(args.exclude_ip),
         "auto_clients": bool(auto_clients),
         "detected_networks": [str(network) for network in (detected_networks or [])],
+        "client_selection": client_selection,
+        "client_fallback": bool(client_fallback),
         "min_packets": int(args.min_packets or 1),
         "since": iso_utc(args.since),
         "until": iso_utc(args.until),
@@ -614,22 +639,70 @@ def _limited(rows: Iterable[Dict[str, str]], limit: Optional[int]):
         yield row
 
 
-def _should_auto_retry(args: argparse.Namespace, analysis: Any,
-                       options: ExtractionOptions) -> bool:
-    """True when the default hotspot filter matched nothing at all.
+def _fallback_allowed(args: argparse.Namespace, options: ExtractionOptions) -> bool:
+    """True when the default hotspot selection may fall back to broader modes.
 
-    On non-Windows-hotspot networks the 1.x default (192.168.137.0/24) often
-    finds no clients.  Rather than fail, retry once with ``--auto-clients``.
-    Explicit network/gateway values disable the fallback so typos stay visible.
+    Explicit network/gateway values (or another mode) disable the fallback so
+    typos stay visible instead of being silently replaced.
     """
     if options.mode != "client" or options.auto_clients:
-        return False
-    if analysis.destinations or analysis.clients:
         return False
     hotspot = str(getattr(args, "hotspot_net", "") or "").strip()
     gateway = str(getattr(args, "gateway", "") or "").strip()
     return (hotspot == DEFAULTS["hotspot_net"]
             and gateway == DEFAULTS["gateway"])
+
+
+def _should_auto_retry(args: argparse.Namespace, analysis: Any,
+                       options: ExtractionOptions) -> bool:
+    """True when the default hotspot filter matched nothing at all."""
+    if analysis.destinations or analysis.clients:
+        return False
+    return _fallback_allowed(args, options)
+
+
+def _client_candidates(args: argparse.Namespace, options: ExtractionOptions,
+                       live: bool, logger: Logger) -> List[ExtractionOptions]:
+    """Client selections to try in one pass, most specific first.
+
+    1. The configured selection (by default the Windows hotspot network).
+    2. Live captures only: this machine's detected private subnets.  A
+       capture *file* may come from another machine (a VM, a phone, a
+       colleague), so this computer's interfaces say nothing about it and are
+       not searched unless ``--detect-local`` asks for it.
+    3. ``--auto-clients``: every private/local address seen in the capture.
+    """
+    candidates = [options]
+    if not _fallback_allowed(args, options):
+        return candidates
+    if live and not options.detected_networks:
+        known = {str(network) for network in options.client_networks}
+        detected = [network for network in _detected_client_networks()
+                    if str(network) not in known]
+        if detected:
+            logger.debug("Fallback candidate: detected local subnet(s) "
+                         + format_networks(detected))
+            candidates.append(_add_detected_networks(options, detected))
+    candidates.append(replace(options, auto_clients=True))
+    return candidates
+
+
+def _selection_label(options: ExtractionOptions) -> str:
+    """Human-readable description of how clients were chosen."""
+    if options.mode == "all":
+        return "all (no client filtering)"
+    if options.mode == "ip":
+        return "src-ip " + ", ".join(sorted(options.src_ips))
+    if options.auto_clients:
+        return "auto-clients (every private/local address)"
+    networks = [str(network) for network in options.client_networks]
+    detected = {str(network) for network in options.detected_networks}
+    parts = [
+        ("detected " if network in detected else
+         "hotspot " if network == WINDOWS_HOTSPOT_NET else "") + network
+        for network in networks
+    ]
+    return ", ".join(parts) or "none"
 
 
 def _print_interfaces(tshark: str) -> int:
@@ -810,56 +883,33 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
                 "keeping --hotspot-net."
             )
 
-    def run_extraction(current: ExtractionOptions):
-        rows = _limited(
-            iter_packets(source, tshark, display_filter, logger),
-            limit,
-        )
-        return extract(rows, current, logger)
-
+    candidates = _client_candidates(args, options, live, logger)
     logger.info(f"Analyzing {display_name} with a single tshark pass ...")
     try:
-        analysis = run_extraction(options)
+        rows = _limited(iter_packets(source, tshark, display_filter, logger), limit)
+        analysis, used = extract_first_match(rows, candidates, logger)
     except TsharkError as exc:
         logger.error(str(exc))
         return 2
 
-    if _should_auto_retry(args, analysis, options):
-        if not detected_networks:
-            detected_networks = _detected_client_networks()
-        if detected_networks:
-            logger.warn(
-                "No clients matched the default hotspot network "
-                f"({DEFAULTS['hotspot_net']}); retrying with detected local "
-                f"subnet(s): {format_networks(detected_networks)}."
+    fallback_used = used > 0 and bool(analysis.destinations or analysis.clients)
+    options = candidates[used]
+    if fallback_used:
+        if options.auto_clients:
+            message = (
+                f"The default hotspot client filter ({WINDOWS_HOTSPOT_NET}) matched "
+                "no clients; auto-clients fallback was used (every private/local "
+                "address in the capture). Use --src-ip to pin one device."
             )
-            options = _add_detected_networks(options, detected_networks)
-            try:
-                analysis = run_extraction(options)
-            except TsharkError as exc:
-                logger.error(str(exc))
-                return 2
-            if analysis.destinations or analysis.clients:
-                analysis.warnings.append(
-                    "The default hotspot client filter matched no clients; "
-                    "detected local subnet(s) were used instead: "
-                    + format_networks(detected_networks)
-                )
-        if not analysis.destinations and not analysis.clients:
-            logger.warn(
-                "No clients matched the default hotspot network or the "
-                "detected subnets; retrying with --auto-clients."
+        else:
+            detected_networks = list(options.detected_networks)
+            message = (
+                f"The default hotspot client filter ({WINDOWS_HOTSPOT_NET}) matched "
+                "no clients; detected local subnet(s) were used instead: "
+                + format_networks(detected_networks)
             )
-            options = replace(options, auto_clients=True)
-            try:
-                analysis = run_extraction(options)
-            except TsharkError as exc:
-                logger.error(str(exc))
-                return 2
-            analysis.warnings.append(
-                "The default hotspot client filter matched no clients; "
-                "auto-clients fallback was used."
-            )
+        logger.warn(message)
+        analysis.warnings.append(message)
 
     analysis.capture.update(_capture_meta(
         args, tshark,
@@ -868,6 +918,8 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
         client_networks=options.client_networks,
         auto_clients=options.auto_clients,
         detected_networks=detected_networks,
+        client_selection=_selection_label(options),
+        client_fallback=fallback_used,
     ))
 
     if not analysis.destinations:
@@ -893,8 +945,23 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
     apply_categories(analysis, args.target)
     run_heuristics(analysis, _analysis_options(args, allowlist))
 
-    # --- enrichment -------------------------------------------------------
+    # --- output folder (before enrichment, so an unwritable --out-dir fails
+    # fast instead of after up to an hour of VirusTotal queries) -----------
     base_dir = os.path.abspath(_expand(args.out_dir) or base_output_dir())
+    stem = safe_filename(display_name)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    run_dir = _unique_dir(os.path.join(base_dir, f"{stem}_{stamp}"))
+    data_dir = os.path.join(run_dir, "data")
+    domains_dir = os.path.join(run_dir, "domains")
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(domains_dir, exist_ok=True)
+    except OSError as exc:
+        logger.error(f"cannot create the results folder {run_dir}: {exc}")
+        return 2
+    logger.info(f"Results folder: {run_dir}")
+
+    # --- enrichment -------------------------------------------------------
     vt_key = read_api_key(args.vt_key, args.vt_key_file)
     if args.no_vt:
         vt_key = ""
@@ -928,19 +995,10 @@ def _analyze(args: argparse.Namespace, logger: Logger, tshark: str,
     enrich(analysis, enrich_options)
     if asn_db is not None:
         analysis.enrichment["asn_db"] = apply_asn_db(analysis, asn_db, logger)
-    run_threat_intel(analysis)
+    apply_threat_intel(analysis, allowlist)
     sort_findings(analysis)
 
-    # --- output folder + capture copy -------------------------------------
-    stem = safe_filename(display_name)
-    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    run_dir = _unique_dir(os.path.join(base_dir, f"{stem}_{stamp}"))
-    data_dir = os.path.join(run_dir, "data")
-    domains_dir = os.path.join(run_dir, "domains")
-    os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(domains_dir, exist_ok=True)
-    logger.info(f"Results folder: {run_dir}")
-
+    # --- capture copy -----------------------------------------------------
     copied_capture = os.path.join(run_dir, display_name)
     if live:
         try:

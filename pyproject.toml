@@ -49,7 +49,7 @@ version = { attr = "snitchlib.__version__" }
 
 [tool.ruff]
 # Keep linting aligned with the supported Python versions. The wider style
-# rule set is intentionally not enabled yet; see HANDOFF.md.
+# rule set is intentionally not enabled yet.
 target-version = "py39"
 line-length = 100
 

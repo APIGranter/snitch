@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from .classify import (
-    CAT_CDN, CAT_CLOUD, TOR_PORTS, base_domain, classify_domain,
-    port_service, subdomain_prefix,
+    CAT_ANALYTICS, CAT_CDN, CAT_CLOUD, CAT_DEVICE, CAT_UPDATES, TOR_PORTS,
+    base_domain, classify_domain, port_service, subdomain_prefix,
 )
 from .allowlist import Allowlist
 from .models import Analysis, Finding
@@ -33,9 +33,11 @@ class AnalysisOptions:
     beacon_max_findings: int = 15
     exfil_min_bytes: int = 5 * 1024 * 1024
     exfil_ratio: float = 5.0
+    exfil_max_findings: int = 5
     dns_min_unique: int = 20
     dns_max_findings: int = 10
     scan_min_ports: int = 25
+    scan_max_findings: int = 5
     tor_max_destinations: int = 4
     tor_min_bytes: int = 200 * 1024
     allowlist: Optional[Allowlist] = None
@@ -43,6 +45,9 @@ class AnalysisOptions:
 
 # Ports where "regular" traffic is expected and not interesting for beaconing.
 _BEACON_IGNORE_PORTS = {53, 123, 5353, 1900, 67, 68}
+
+#: Categories whose services check in on a schedule by design.
+_EXPECTED_PERIODIC = {CAT_DEVICE, CAT_UPDATES, CAT_ANALYTICS}
 
 #: Threshold presets. Explicit CLI/config values always win over the profile.
 HEURISTIC_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -229,9 +234,14 @@ def _detect_beaconing(analysis: Analysis, options: AnalysisOptions) -> List[Find
         domain = ""
         if dest_obj and dest_obj.domains:
             domain = dest_obj.domains.most_common(1)[0][0]
+        category = classify_domain(domain, options.target) if domain else ""
+        severity = "medium"
+        if category in _EXPECTED_PERIODIC:
+            # Telemetry, update checks and analytics beacon on purpose.
+            severity, confidence = "low", "low"
         findings.append(Finding(
             id="beaconing",
-            severity="medium",
+            severity=severity,
             title="Possible periodic beaconing",
             detail=(
                 f"{client} contacted {dest}:{dport} ({port_service(dport, proto)}) "
@@ -248,6 +258,7 @@ def _detect_beaconing(analysis: Analysis, options: AnalysisOptions) -> List[Find
                 "events": len(deduped), "median_interval_s": round(med, 2),
                 "cv": round(cv, 3), "regularity": round(regular, 3),
                 "first_seen": deduped[0], "last_seen": deduped[-1],
+                "category": category,
             },
         ))
     findings.sort(key=lambda f: f.score, reverse=True)
@@ -293,7 +304,7 @@ def _detect_exfiltration(analysis: Analysis, options: AnalysisOptions) -> List[F
             },
         ))
     findings.sort(key=lambda f: f.score, reverse=True)
-    return findings[:5]
+    return findings[:options.exfil_max_findings]
 
 
 # --------------------------------------------------------------------------
@@ -405,7 +416,7 @@ def _detect_port_scan(analysis: Analysis, options: AnalysisOptions) -> List[Find
                       "unique_ports": len(ports), "syns": syns},
         ))
     findings.sort(key=lambda f: f.score, reverse=True)
-    return findings[:5]
+    return findings[:options.scan_max_findings]
 
 
 # --------------------------------------------------------------------------
@@ -461,10 +472,12 @@ def _detect_cleartext(analysis: Analysis) -> List[Finding]:
     if not affected:
         return []
     affected.sort(key=lambda d: d.bytes, reverse=True)
+    # Only the ports that actually carried cleartext protocols (with all of
+    # their packets), not every port of the affected destinations.
     ports = Counter()
     for dest in affected:
-        for port, count in dest.ports.items():
-            ports[port] += count
+        for port in dest.cleartext_ports:
+            ports[port] += dest.ports.get(port, 0)
     return [Finding(
         id="cleartext",
         severity="low",
@@ -482,7 +495,9 @@ def _detect_cleartext(analysis: Analysis) -> List[Finding]:
 
 
 def _detect_retransmissions(analysis: Analysis) -> List[Finding]:
-    total_packets = sum(d.packets for d in analysis.destinations.values())
+    # Retransmissions are a TCP concept, so UDP/QUIC packets would only dilute
+    # the rate.
+    total_packets = sum(d.tcp_packets for d in analysis.destinations.values())
     total_retrans = sum(d.retransmissions for d in analysis.destinations.values())
     if total_packets < 500 or total_retrans < 20:
         return []
@@ -496,7 +511,7 @@ def _detect_retransmissions(analysis: Analysis) -> List[Finding]:
         severity="info",
         title="High TCP retransmission rate",
         detail=(
-            f"{total_retrans} retransmissions out of {total_packets} packets "
+            f"{total_retrans} retransmissions out of {total_packets} TCP packets "
             f"({rate:.1f}%). This points to packet loss or a congested link, "
             f"not necessarily malicious activity."
         ),
@@ -574,6 +589,26 @@ def run_threat_intel(analysis: Analysis) -> List[Finding]:
                           "link": f"https://www.virustotal.com/gui/domain/{domain}"},
             ))
     return apply_playbooks(findings)
+
+
+def apply_threat_intel(analysis: Analysis,
+                       allowlist: Optional[Allowlist] = None) -> List[Finding]:
+    """Add reputation findings to ``analysis.findings`` (honouring the allowlist).
+
+    :func:`run_threat_intel` only builds the findings; this is the pipeline
+    step that makes them reach the report, CSV/TXT outputs and ``--fail-on``.
+    """
+    findings = run_threat_intel(analysis)
+    if allowlist and allowlist.entries:
+        findings, suppressed = allowlist.partition(findings)
+        if suppressed:
+            analysis.suppressed_findings.extend(suppressed)
+            analysis.warnings.append(
+                f"Allowlist suppressed {len(suppressed)} reputation finding(s) "
+                f"({allowlist.describe()})."
+            )
+    analysis.findings.extend(findings)
+    return findings
 
 
 def sort_findings(analysis: Analysis) -> None:

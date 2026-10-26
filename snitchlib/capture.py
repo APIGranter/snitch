@@ -29,6 +29,8 @@ FIELDS: List[str] = [
     "frame.time_epoch",
     "frame.len",
     "frame.protocols",
+    "eth.src",
+    "eth.dst",
     "ip.src",
     "ip.dst",
     "ipv6.src",

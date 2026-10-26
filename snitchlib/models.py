@@ -33,7 +33,9 @@ class Destination:
     user_agents: Counter = field(default_factory=Counter)
     http_methods: Counter = field(default_factory=Counter)
     retransmissions: int = 0
+    tcp_packets: int = 0
     syn_count: int = 0
+    cleartext_ports: Counter = field(default_factory=Counter)
     geo: Dict[str, Any] = field(default_factory=dict)
     vt: Dict[str, Any] = field(default_factory=dict)
     rdns: str = ""
@@ -89,6 +91,9 @@ class ClientStat:
     domains: Counter = field(default_factory=Counter)
     ports: Counter = field(default_factory=Counter)
     hostnames: Counter = field(default_factory=Counter)
+    #: Why this address counts as a client (hotspot, src-ip, auto, mac, ...).
+    selected_by: str = ""
+    macs: Set[str] = field(default_factory=set)
 
     @property
     def packets(self) -> int:
@@ -141,7 +146,14 @@ class DNSQueryStat:
     answers: Counter = field(default_factory=Counter)
     first_seen: float = 0.0
     last_seen: float = 0.0
-    response_time_ms: float = 0.0
+    response_time_ms: float = 0.0       # average over ``responses``
+    max_response_time_ms: float = 0.0
+    responses: int = 0
+
+    def add_response_time(self, milliseconds: float) -> None:
+        self.responses += 1
+        self.response_time_ms += (milliseconds - self.response_time_ms) / self.responses
+        self.max_response_time_ms = max(self.max_response_time_ms, milliseconds)
 
 
 @dataclass
@@ -202,9 +214,9 @@ class Analysis:
 
 #: Human-readable DNS query types.
 DNS_TYPES = {
-    1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 12: "PTR", 15: "MX", 16: "TXT",
-    17: "RP", 18: "AFSDB", 24: "SIG", 25: "KEY", 28: "AAAA", 29: "LOC",
-    33: "SRV", 35: "NAPTR", 36: "KX", 37: "CERT", 39: "DNAME", 43: "DS",
+    1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 10: "NULL", 12: "PTR", 13: "HINFO",
+    15: "MX", 16: "TXT", 17: "RP", 18: "AFSDB", 24: "SIG", 25: "KEY", 28: "AAAA", 29: "LOC",
+    33: "SRV", 35: "NAPTR", 36: "KX", 37: "CERT", 39: "DNAME", 41: "OPT", 43: "DS",
     44: "SSHFP", 45: "IPSECKEY", 46: "RRSIG", 47: "NSEC", 48: "DNSKEY",
     49: "DHCID", 50: "NSEC3", 51: "NSEC3PARAM", 52: "TLSA", 53: "SMIMEA",
     55: "HIP", 59: "CDS", 60: "CDNSKEY", 61: "OPENPGPKEY", 62: "CSYNC",

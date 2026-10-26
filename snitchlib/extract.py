@@ -8,11 +8,12 @@ DNS/SNI map used to tie hostnames to IPs.
 
 from __future__ import annotations
 
+import functools
 import ipaddress
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .models import (
     Analysis, ClientStat, DNSQueryStat, Destination, DomainStat, Flow,
@@ -25,21 +26,36 @@ from .util import Logger
 # IP helpers
 # --------------------------------------------------------------------------
 
-def parse_ip(value: str):
+#: RFC 6598 shared address space (carrier-grade NAT, Tailscale, mobile hotspots).
+SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+
+@functools.lru_cache(maxsize=65536)
+def _parse_ip_cached(value: str):
     try:
         return ipaddress.ip_address(value.strip().strip("[]").split("%")[0])
     except ValueError:
         return None
 
 
+def parse_ip(value: str):
+    # Every packet parses the same few addresses many times; the cache makes
+    # that a dictionary lookup instead of an ``ipaddress`` parse.
+    return _parse_ip_cached(str(value or ""))
+
+
 def is_public_ip(value: str) -> bool:
-    """True only for internet-routable IPs (IPv4 and IPv6)."""
+    """True only for internet-routable IPs (IPv4 and IPv6).
+
+    ``is_global`` also excludes carrier-grade NAT (100.64.0.0/10) and other
+    special-purpose ranges that ``is_private`` misses.
+    """
     obj = parse_ip(value)
     if obj is None:
         return False
-    return not (
-        obj.is_private or obj.is_loopback or obj.is_multicast
-        or obj.is_reserved or obj.is_link_local or obj.is_unspecified
+    return obj.is_global and not (
+        obj.is_loopback or obj.is_multicast or obj.is_reserved
+        or obj.is_link_local or obj.is_unspecified
     )
 
 
@@ -50,13 +66,22 @@ def is_local_ip(value: str) -> bool:
         return False
     return bool(
         obj.is_private or obj.is_loopback or obj.is_link_local
-        or obj.is_unspecified
+        or obj.is_unspecified or obj in SHARED_ADDRESS_SPACE
     )
 
 
 def normalize_ip(value: str) -> str:
     obj = parse_ip(value)
     return str(obj) if obj is not None else value.strip()
+
+
+def first_value(value: Optional[str]) -> str:
+    """First of tshark's comma-separated occurrences (the outer header).
+
+    ICMP errors, GRE/IP-in-IP, 6in4 and Teredo carry two IP headers, and tshark
+    then prints ``ip.src`` as ``"outer,inner"``.
+    """
+    return (value or "").split(",", 1)[0].strip()
 
 
 _NBNS_SUFFIX_RE = re.compile(r"<[0-9a-f]{2}>\s*$", re.IGNORECASE)
@@ -114,12 +139,19 @@ class ExtractionOptions:
     auto_clients: bool = False
     exclude_networks: List[ipaddress._BaseNetwork] = field(default_factory=list)
     min_packets: int = 1
+    #: Subset of ``client_networks`` that came from local-interface discovery
+    #: (only used to label why a client was selected).
+    detected_networks: List[ipaddress._BaseNetwork] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.mode not in ("client", "ip", "all"):
             raise ValueError(f"invalid mode {self.mode!r}")
         self.src_ips = {normalize_ip(ip) for ip in self.src_ips}
         self.gateways = {normalize_ip(ip) for ip in self.gateways}
+
+
+#: The Windows Mobile Hotspot subnet SNItch was built around.
+WINDOWS_HOTSPOT_NET = "192.168.137.0/24"
 
 
 class ClientMatcher:
@@ -132,8 +164,15 @@ class ClientMatcher:
 
     def __init__(self, options: ExtractionOptions) -> None:
         self.options = options
+        self._cache: Dict[str, bool] = {}
 
     def __call__(self, ip: str) -> bool:
+        cached = self._cache.get(ip)
+        if cached is None:
+            cached = self._cache[ip] = self._match(ip)
+        return cached
+
+    def _match(self, ip: str) -> bool:
         if self.options.mode == "ip":
             return normalize_ip(ip) in self.options.src_ips
         if self.options.mode == "all":
@@ -146,6 +185,24 @@ class ClientMatcher:
         if obj is None:
             return False
         return any(obj in net for net in self.options.client_networks)
+
+    def reason(self, ip: str) -> str:
+        """Short label explaining why ``ip`` counts as a client ("" if not)."""
+        if not self(ip):
+            return ""
+        if self.options.mode == "ip":
+            return "src-ip"
+        if self.options.mode == "all":
+            return "all (local address)"
+        obj = parse_ip(ip)
+        for net in self.options.client_networks:
+            if obj is not None and obj in net:
+                if net in self.options.detected_networks:
+                    return f"detected subnet {net}"
+                if str(net) == WINDOWS_HOTSPOT_NET:
+                    return f"hotspot {net}"
+                return f"client network {net}"
+        return "auto (local address)"
 
     def is_gateway(self, ip: str) -> bool:
         return normalize_ip(ip) in self.options.gateways
@@ -194,8 +251,10 @@ def banner_domain(value: str) -> str:
         name = normalize_domain(token)
         if not name:
             continue
-        # Skip version strings and numeric noise (e.g. "1.3.5").
-        if all(label.isdigit() for label in name.split(".")):
+        # Skip version strings ("1.3.5", "1.3.5e", "v2.0"): a hostname ends
+        # in an alphabetic top-level label of at least two characters.
+        tld = name.rsplit(".", 1)[-1]
+        if len(tld) < 2 or not tld.isalpha():
             continue
         return name
     return ""
@@ -270,6 +329,12 @@ class Extractor:
         self._hostnames: Dict[str, Counter] = {}
         self._dhcp_names: Dict[str, Counter] = {}
         self._dhcp_ips: Dict[str, Set[str]] = {}
+        # IPv6 clients usually use global addresses that no IPv4 network or
+        # --src-ip matches.  Learn each IPv4 client's MAC address and treat
+        # IPv6 addresses seen with that MAC as the same device.
+        self._client_macs: Dict[str, str] = {}    # mac -> IPv4 client
+        self._router_macs: Set[str] = set()       # MACs forwarding public IPv4
+        self._ipv6_aliases: Dict[str, str] = {}   # IPv6 address -> mac
 
     # -- small helpers ---------------------------------------------------
     def _dest(self, ip: str) -> Destination:
@@ -335,8 +400,11 @@ class Extractor:
         except ValueError:
             length = 0
 
-        src = normalize_ip(row.get("ip_src") or row.get("ipv6_src") or "")
-        dst = normalize_ip(row.get("ip_dst") or row.get("ipv6_dst") or "")
+        ipv4_src = first_value(row.get("ip_src"))
+        ipv4_dst = first_value(row.get("ip_dst"))
+        is_ipv6 = not (ipv4_src or ipv4_dst)
+        src = normalize_ip(ipv4_src or first_value(row.get("ipv6_src")))
+        dst = normalize_ip(ipv4_dst or first_value(row.get("ipv6_dst")))
         if not src or not dst:
             return
 
@@ -347,22 +415,24 @@ class Extractor:
         analysis.first_seen = min(analysis.first_seen, timestamp)
         analysis.last_seen = max(analysis.last_seen, timestamp)
 
-        if self.is_client(src):
-            self.detected_clients[src] = self.detected_clients.get(src, 0) + 1
-
         stack = row.get("frame_protocols") or ""
         layers = set(stack.split(":")) if stack else set()
-        if "tcp" in layers:
+        # ICMP errors quote the offending TCP/UDP header, so check ICMP first
+        # and ignore the quoted ports.
+        if "icmp" in layers or "icmpv6" in layers:
+            proto = "icmp"
+        elif "tcp" in layers:
             proto = "tcp"
         elif "udp" in layers:
             proto = "udp"
-        elif "icmp" in layers or "icmpv6" in layers:
-            proto = "icmp"
         else:
             proto = "ip"
 
-        sport = _to_int(row.get("tcp_srcport") or row.get("udp_srcport"))
-        dport = _to_int(row.get("tcp_dstport") or row.get("udp_dstport"))
+        if proto == "icmp":
+            sport = dport = 0
+        else:
+            sport = _to_int(first_value(row.get("tcp_srcport") or row.get("udp_srcport")))
+            dport = _to_int(first_value(row.get("tcp_dstport") or row.get("udp_dstport")))
 
         # --- decide the public endpoint and direction ------------------
         direction = ""
@@ -370,13 +440,39 @@ class Extractor:
         server_port = 0
         src_client = self.is_client(src)
         dst_client = self.is_client(dst)
+        eth_src = first_value(row.get("eth_src")).lower()
+        eth_dst = first_value(row.get("eth_dst")).lower()
         src_public = is_public_ip(src)
         dst_public = is_public_ip(dst)
+        if is_ipv6:
+            if not src_client and self._client_mac(eth_src):
+                src_client = self._alias_ipv6(src, eth_src)
+            if not dst_client and self._client_mac(eth_dst):
+                dst_client = self._alias_ipv6(dst, eth_dst)
+        else:
+            # A MAC that carries public IPv4 traffic belongs to a router or
+            # the hotspot host (it forwards for everyone), never to one client.
+            if src_public and eth_src:
+                self._router_macs.add(eth_src)
+            if dst_public and eth_dst:
+                self._router_macs.add(eth_dst)
+            if src_client and _is_unicast_mac(eth_src):
+                self._client_macs.setdefault(eth_src, src)
+            if dst_client and _is_unicast_mac(eth_dst):
+                self._client_macs.setdefault(eth_dst, dst)
+
+        if src_client:
+            self.detected_clients[src] = self.detected_clients.get(src, 0) + 1
 
         self._feed_hostnames(row, src, src_client)
 
         if self.options.mode == "all":
-            if dst_public and not src_public:
+            if src_client and dst_public and not dst_client:
+                # IPv6 client recognised by MAC: its own address is public too.
+                direction, dest_ip, client_ip, server_port = "out", dst, src, dport
+            elif dst_client and src_public and not src_client:
+                direction, dest_ip, client_ip, server_port = "in", src, dst, sport
+            elif dst_public and not src_public:
                 direction, dest_ip, client_ip, server_port = "out", dst, src, dport
             elif src_public and not dst_public:
                 direction, dest_ip, client_ip, server_port = "in", src, dst, sport
@@ -416,6 +512,8 @@ class Extractor:
                 dest.packets_in += 1
                 dest.bytes_in += length
 
+            if proto == "tcp":
+                dest.tcp_packets += 1
             if _truthy(row.get("tcp_analysis_retransmission") or ""):
                 dest.retransmissions += 1
             if _truthy(row.get("tcp_flags_syn") or "") and not _truthy(row.get("tcp_flags_ack") or ""):
@@ -423,6 +521,8 @@ class Extractor:
 
             if layers & CLEAR_PROTOCOLS:
                 dest.has_cleartext = True
+                if server_port:
+                    dest.cleartext_ports[server_port] += 1
 
             # TLS metadata
             for version in _split_multi(row.get("tls_handshake_version") or ""):
@@ -535,6 +635,18 @@ class Extractor:
         if selected and direction == "out" and client_ip:
             self._record_stream_start(proto, row, timestamp, client_ip, dest_ip, server_port)
 
+    def _client_mac(self, mac: str) -> bool:
+        return mac in self._client_macs and mac not in self._router_macs
+
+    def _alias_ipv6(self, ip: str, mac: str) -> bool:
+        """Treat an IPv6 address sent/received by a client's MAC as a client."""
+        obj = parse_ip(ip)
+        if obj is None or obj.version != 6 or obj.is_multicast \
+                or obj.is_unspecified or obj.is_link_local or obj.is_loopback:
+            return False
+        self._ipv6_aliases.setdefault(ip, mac)
+        return True
+
     def _client_domain(self, client_ip: str, name: str) -> None:
         if client_ip:
             self._client(client_ip).domains[name] += 1
@@ -580,6 +692,10 @@ class Extractor:
                     self._dhcp_ips.setdefault(mac, set()).add(ip)
                     if hostname:
                         self._remember_hostname(ip, hostname)
+                    # A DHCP lease is the earliest place to learn a client's
+                    # MAC for IPv6 attribution.
+                    if self.is_client(ip) and _is_unicast_mac(mac):
+                        self._client_macs.setdefault(mac, ip)
 
         nbns = normalize_hostname(row.get("nbns_name") or "")
         if nbns and src_client:
@@ -606,14 +722,33 @@ class Extractor:
         if not qname_raw:
             return
         is_response = _truthy(row.get("dns_flags_response") or "")
-        qtype, qtype_name = dns_type_name(row.get("dns_qry_type") or "")
-        answers = [a for a in _split_multi(row.get("dns_a") or "") + _split_multi(row.get("dns_aaaa") or "")
+        qtype, qtype_name = dns_type_name(first_value(row.get("dns_qry_type")))
+        answers = [normalize_ip(a) for a in
+                   _split_multi(row.get("dns_a") or "") + _split_multi(row.get("dns_aaaa") or "")
                    if parse_ip(a) is not None]
+        names = [name for name in map(normalize_domain, _split_multi(qname_raw)) if name]
 
-        for raw_name in _split_multi(qname_raw):
-            name = normalize_domain(raw_name)
-            if not name:
-                continue
+        if is_response:
+            # The IP -> name map only labels destinations, so it is learned
+            # from every response, including lookups by unselected hosts.
+            for name in names:
+                for answer in answers:
+                    self.analysis.dns_answers.setdefault(answer, set()).add(name)
+                    self.analysis.dns_names.setdefault(name, set()).add(answer)
+            if not dst_client:
+                return
+            self.analysis.dns_servers[src] += 1
+        elif not src_client:
+            # Queries from other devices (or the hotspot host forwarding them
+            # upstream) do not belong to the selected clients.
+            return
+
+        try:
+            response_ms = float(row.get("dns_time") or "") * 1000.0
+        except ValueError:
+            response_ms = None
+
+        for name in names:
             key = (name, qtype)
             stat = self.analysis.dns_queries.get(key)
             if stat is None:
@@ -624,24 +759,23 @@ class Extractor:
 
             if is_response:
                 stat.answers.update(answers)
-                try:
-                    stat.response_time_ms = float(row.get("dns_time") or 0) * 1000.0
-                except ValueError:
-                    pass
-                client = dst if dst_client else ""
-                self._touch_domain(name, "dns", timestamp, client)
-                for answer in answers:
-                    answer = normalize_ip(answer)
-                    self.analysis.dns_answers.setdefault(answer, set()).add(name)
-                    self.analysis.dns_names.setdefault(name, set()).add(answer)
-                    self._domain(name).ips[answer] += 1
-                self.analysis.dns_servers[src] += 1
+                if response_ms is not None:
+                    stat.add_response_time(response_ms)
+                # The lookup itself is counted on the query; only count the
+                # response when the query was not captured.
+                domain = self.analysis.domains.get(name)
+                if domain is None:
+                    self._touch_domain(name, "dns", timestamp, dst)
+                    domain = self.analysis.domains.get(name)
+                else:
+                    domain.last_seen = max(domain.last_seen, timestamp)
+                if domain is not None:
+                    for answer in answers:
+                        domain.ips[answer] += 1
             else:
                 stat.count += 1
-                client = src if src_client else ""
-                if client:
-                    stat.clients[client] += 1
-                self._touch_domain(name, "dns", timestamp, client)
+                stat.clients[src] += 1
+                self._touch_domain(name, "dns", timestamp, src)
 
     # -- finish ----------------------------------------------------------
     def finish(self) -> Analysis:
@@ -649,6 +783,8 @@ class Extractor:
 
         # Attach DNS-derived names to every destination, even when the SNI
         # never appeared in the capture (e.g. cached TLS session reuse).
+        # The domain table only lists names the selected clients used; a name
+        # learned from another host's lookup still labels the destination.
         for ip, names in analysis.dns_answers.items():
             if ip not in analysis.destinations:
                 continue
@@ -656,9 +792,12 @@ class Extractor:
             for name in names:
                 if name not in dest.domains:
                     dest.domains[name] = 0
-                    self._domain(name).ips[ip] += 1
+                domain = analysis.domains.get(name)
+                if domain is not None and ip not in domain.ips:
+                    domain.ips[ip] += 1
 
-        # Apply the minimum-packets filter after all aggregation.
+        # Apply the minimum-packets filter after all aggregation, including
+        # the connection events used for beaconing.
         min_packets = max(1, int(self.options.min_packets or 1))
         if min_packets > 1:
             keep = {ip for ip, d in analysis.destinations.items() if d.packets >= min_packets}
@@ -668,6 +807,9 @@ class Extractor:
             analysis.flows = {
                 key: f for key, f in analysis.flows.items() if f.dst in keep
             }
+            analysis.stream_events = [
+                event for event in analysis.stream_events if event[2] in keep
+            ]
             for client in analysis.clients.values():
                 client.destinations = type(client.destinations)(
                     (ip, n) for ip, n in client.destinations.items() if ip in keep
@@ -684,12 +826,45 @@ class Extractor:
             if client is not None:
                 client.hostnames.update(names)
 
+        # Record why each client was selected so reports can show it.
+        for mac, owner in self._client_macs.items():
+            if owner in analysis.clients and mac not in self._router_macs:
+                analysis.clients[owner].macs.add(mac)
+        ipv6_by_mac = {}
+        for ip, client in analysis.clients.items():
+            mac = self._ipv6_aliases.get(ip)
+            if mac and not self.is_client(ip):
+                owner = self._client_macs.get(mac, "")
+                client.macs.add(mac)
+                client.selected_by = f"IPv6 of {owner} (same MAC)" if owner else "IPv6 (same MAC)"
+                if not client.hostnames and owner in analysis.clients:
+                    client.hostnames.update(analysis.clients[owner].hostnames)
+                ipv6_by_mac[ip] = owner
+            else:
+                client.selected_by = self.is_client.reason(ip)
+        if ipv6_by_mac:
+            analysis.capture["ipv6_clients_by_mac"] = ipv6_by_mac
+            analysis.warnings.append(
+                f"{len(ipv6_by_mac)} IPv6 address(es) were attributed to selected "
+                "clients because they share the client's MAC address."
+            )
+
         analysis.capture["clients_detected"] = dict(
             sorted(self.detected_clients.items(), key=lambda kv: kv[1], reverse=True)
         )
         analysis.capture["selected_packets"] = analysis.selected_packets
         analysis.capture["selected_bytes"] = analysis.selected_bytes
         return analysis
+
+
+def _is_unicast_mac(mac: str) -> bool:
+    """True for ``aa:bb:cc:dd:ee:ff`` addresses without the group bit set."""
+    if len(mac) != 17:
+        return False
+    try:
+        return not int(mac[:2], 16) & 1
+    except ValueError:
+        return False
 
 
 def _to_int(value: Optional[str]) -> int:
@@ -706,3 +881,30 @@ def extract(rows: Iterable[Dict[str, str]], options: ExtractionOptions,
     for row in rows:
         extractor.feed(row)
     return extractor.finish()
+
+
+def extract_first_match(rows: Iterable[Dict[str, str]],
+                        candidates: Sequence[ExtractionOptions],
+                        logger: Optional[Logger] = None) -> Tuple[Analysis, int]:
+    """Try several client selections in one pass; keep the first that matches.
+
+    ``candidates`` are in priority order (e.g. hotspot network, then
+    ``--auto-clients``).  Every row is fed to each candidate until a
+    higher-priority one selects traffic, at which point the lower-priority
+    fallbacks are dropped.  This replaces re-running tshark for each fallback
+    and returns ``(analysis, index of the candidate used)``.  When nothing
+    matches, the last (broadest) candidate's analysis is returned.
+    """
+    if not candidates:
+        raise ValueError("at least one extraction candidate is required")
+    extractors = [Extractor(options, logger) for options in candidates]
+    for row in rows:
+        for index, extractor in enumerate(extractors):
+            extractor.feed(row)
+            if extractor.analysis.selected_packets and index + 1 < len(extractors):
+                del extractors[index + 1:]
+                break
+    for index, extractor in enumerate(extractors):
+        if extractor.analysis.selected_packets:
+            return extractor.finish(), index
+    return extractors[-1].finish(), len(extractors) - 1

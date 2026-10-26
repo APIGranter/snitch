@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for CLI parsing, config merging and key resolution."""
 
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -19,6 +21,12 @@ from snitchlib.util import Logger
 
 
 class ParserTests(unittest.TestCase):
+    def setUp(self):
+        # Invalid-value tests make argparse print usage; keep test output clean.
+        silence = contextlib.redirect_stderr(io.StringIO())
+        silence.__enter__()
+        self.addCleanup(silence.__exit__, None, None, None)
+
     def test_defaults_preserve_v1_behaviour(self):
         parser = build_parser()
         args = parser.parse_args(["capture.pcapng"])

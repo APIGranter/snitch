@@ -86,7 +86,8 @@ SUFFIX_RULES: List[Tuple[str, Tuple[str, ...]]] = [
         "gvt2.com", "connectivitycheck.gstatic.com", "time.android.com",
         "android.clients.google.com", "play.googleapis.com",
         "telemetry.mozilla.org", "incoming.telemetry.mozilla.org",
-        "firefox.com", "mozilla.net", "mozilla.org", "icloud.com",
+        "firefox.com", "mozilla.net", "mozilla.org", "mozilla.com",
+        "msftconnecttest.com", "msftncsi.com", "icloud.com",
         "apple.com", "apple-dns.net", "mzstatic.com", "umeng.com",
         "windowsupdate.com", "update.microsoft.com", "telemetry.microsoft.com",
         "settings-win.data.microsoft.com", "v10.events.data.microsoft.com",
@@ -96,7 +97,7 @@ SUFFIX_RULES: List[Tuple[str, Tuple[str, ...]]] = [
     )),
     (CAT_UPDATES, (
         "update.googleapis.com", "dl.google.com", "clients2.google.com",
-        "clients3.google.com", "clients4.google.com", "clients6.google.com",
+        "clients3.google.com", "clients4.google.com",
         "redirector.gvt1.com", "download.windowsupdate.com",
         "swcdn.apple.com", "mesu.apple.com", "updates.cdn-apple.com",
         "archive.ubuntu.com", "security.ubuntu.com", "deb.debian.org",
@@ -124,6 +125,7 @@ SUFFIX_RULES: List[Tuple[str, Tuple[str, ...]]] = [
         "ggpht.com", "llnwd.net", "cdn77.org", "stackpathdns.com",
         "bunnycdn.com", "jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com",
         "bootstrapcdn.com", "typekit.net", "fonts.googleapis.com",
+        "msedge.net", "arpa",
     )),
     (CAT_CLOUD, (
         "amazonaws.com", "azure.com", "windows.net", "microsoftonline.com",
@@ -152,8 +154,20 @@ SUFFIX_RULES: List[Tuple[str, Tuple[str, ...]]] = [
         "pinterest.com", "tumblr.com", "vimeo.com", "soundcloud.com",
         "deezer.com", "tidal.com", "booking.com", "airbnb.com", "uber.com",
         "lyft.com", "dropbox.com", "box.com", "notion.so", "figma.com",
+        # Broad vendor fallbacks: more specific rules above win first.
+        "google.com", "withgoogle.com",
     )),
 ]
+
+#: Hostname labels (or hyphen-separated parts, trailing digits ignored) that
+#: mark an ad/tracking endpoint even under a vendor suffix that is otherwise
+#: classified differently (``ads.mozilla.org``, ``pagead2.googlesyndication``).
+AD_LABEL_TOKENS = frozenset({
+    "ads", "adserver", "adservice", "adservices", "pagead", "ogads",
+    "adtrafficquality", "adsrvr", "adnxs",
+})
+#: Tokens that only count as a whole label ("ad.example.com", not "my-ad-blocker").
+AD_WHOLE_LABELS = frozenset({"ad"})
 
 # Distinctive substrings that are useful when the exact suffix varies a lot.
 SUBSTRING_RULES: List[Tuple[str, Tuple[str, ...]]] = [
@@ -299,6 +313,18 @@ def _substring_match(domain: str, needle: str) -> bool:
     return False
 
 
+def _has_ad_label(domain: str) -> bool:
+    """True when a non-TLD label names an ad/tracking endpoint."""
+    labels = domain.split(".")[:-1]
+    for label in labels:
+        if label in AD_WHOLE_LABELS:
+            return True
+        for part in re.split(r"[-_]", label):
+            if part.rstrip("0123456789") in AD_LABEL_TOKENS:
+                return True
+    return False
+
+
 def classify_domain(domain: str, target: str = "") -> str:
     """Return the best category for ``domain`` (first matching rule wins)."""
     category, _ = classify_domain_detailed(domain, target)
@@ -312,6 +338,8 @@ def classify_domain_detailed(domain: str, target: str = "") -> Tuple[str, str]:
         return CAT_OTHER, "low"
     if matches_target(d, target):
         return CAT_TARGET, "high"
+    if _has_ad_label(d):
+        return CAT_TRACKING, "high"
     for category, suffixes in SUFFIX_RULES:
         for suffix in suffixes:
             if _suffix_match(d, suffix):

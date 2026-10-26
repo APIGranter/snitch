@@ -20,6 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Set
 
@@ -73,10 +74,11 @@ def _get_json(url: str, headers: Optional[Dict[str, str]] = None,
                         "_body": body, "_retry_after": exc.headers.get("Retry-After", "")}
             last_error = f"HTTP {exc.code}"
             if exc.code == 429:
-                # Honour Retry-After for VirusTotal's rate limiter.
+                # Honour Retry-After for VirusTotal's rate limiter.  The body
+                # tells a per-minute limit apart from an exhausted daily quota.
                 retry_after = exc.headers.get("Retry-After", "")
                 return {"_error": "HTTP 429 (rate limited)", "_status": 429,
-                        "_retry_after": retry_after}
+                        "_body": body, "_retry_after": retry_after}
         except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
             last_error = str(getattr(exc, "reason", exc))
         except ValueError as exc:
@@ -119,6 +121,7 @@ class EnrichmentCache:
         self.data: Dict[str, Any] = {
             "version": CACHE_VERSION, "geo": {}, "vt": {}, "rdns": {},
             "rdap": {}, "domains": {}, "tor": {}, "geo_failed": {},
+            "rdap_failed": {},
         }
         self._dirty = 0
         if self.enabled and path:
@@ -216,6 +219,8 @@ class EnrichOptions:
     geo_failure_ttl_hours: float = 6.0
     vt_ttl_days: float = 7.0
     rdns_ttl_days: float = 7.0
+    rdns_timeout: float = 30.0
+    rdap_failure_ttl_hours: float = 6.0
     tor_exits: bool = False
     tor_exit_url: str = "https://check.torproject.org/torbulkexitlist"
     rdap_url: str = "https://rdap.org/ip/{ip}"
@@ -290,8 +295,16 @@ def geolocate(ip: str) -> Dict[str, Any]:
     return result
 
 
-def enrich_geo(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
-    cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
+def _cache_for(options: EnrichOptions, cache: Optional[EnrichmentCache]) -> EnrichmentCache:
+    """Use the shared cache from :func:`enrich`, or open one for direct calls."""
+    if cache is not None:
+        return cache
+    return EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
+
+
+def enrich_geo(analysis: Analysis, options: EnrichOptions,
+               cache: Optional[EnrichmentCache] = None) -> Dict[str, Any]:
+    cache = _cache_for(options, cache)
     todo = []
     stats = {"total": len(analysis.destinations), "cached": 0,
              "looked_up": 0, "unknown": 0, "failed": 0, "failed_cached": 0}
@@ -407,10 +420,11 @@ def reverse_dns(ip: str) -> Dict[str, Any]:
         return {"name": ""}
 
 
-def enrich_rdns(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
-    cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
+def enrich_rdns(analysis: Analysis, options: EnrichOptions,
+                cache: Optional[EnrichmentCache] = None) -> Dict[str, Any]:
+    cache = _cache_for(options, cache)
     todo = []
-    stats = {"cached": 0, "looked_up": 0}
+    stats = {"cached": 0, "looked_up": 0, "timed_out": 0}
     for dest in analysis.destinations.values():
         cached = cache.get("rdns", dest.ip, options.rdns_ttl_days, options.refresh)
         if cached is not None:
@@ -423,9 +437,12 @@ def enrich_rdns(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
         return stats
     workers = max(1, min(32, int(options.workers or 8)))
     options.logger.info(f"Reverse DNS for {len(todo)} IP(s) ...")
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="rdns") as pool:
-        futures = {pool.submit(reverse_dns, ip): ip for ip in todo}
-        for future in as_completed(futures):
+    # gethostbyaddr has no timeout of its own and can hang for many seconds
+    # per address (NetBIOS/LLMNR on Windows), so cap the total wait.
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="rdns")
+    futures = {pool.submit(reverse_dns, ip): ip for ip in todo}
+    try:
+        for future in as_completed(futures, timeout=max(1.0, options.rdns_timeout)):
             ip = futures[future]
             try:
                 data = future.result()
@@ -436,6 +453,14 @@ def enrich_rdns(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
                 analysis.destinations[ip].rdns = data.get("name", "")
             if data.get("name"):
                 stats["looked_up"] += 1
+    except FuturesTimeout:
+        stats["timed_out"] = sum(1 for future in futures if not future.done())
+        options.logger.warn(
+            f"Reverse DNS: {stats['timed_out']} lookup(s) did not answer within "
+            f"{options.rdns_timeout:g}s; continuing without them."
+        )
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     cache.save()
     options.logger.info(f"Reverse DNS: {stats['cached']} cached, {stats['looked_up']} names found")
     return stats
@@ -487,11 +512,14 @@ def _rdap_lookup(ip: str, rdap_url: str = DEFAULT_RDAP_URL) -> Dict[str, Any]:
     }
 
 
-def enrich_rdap(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
-    cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
+def enrich_rdap(analysis: Analysis, options: EnrichOptions,
+                cache: Optional[EnrichmentCache] = None) -> Dict[str, Any]:
+    cache = _cache_for(options, cache)
     source = _rdap_source(options.rdap_url)
     todo = []
-    stats = {"cached": 0, "looked_up": 0, "failed": 0, "source": source}
+    stats = {"cached": 0, "looked_up": 0, "failed": 0, "failed_cached": 0,
+             "source": source, "template": options.rdap_url or DEFAULT_RDAP_URL}
+    failure_ttl_days = max(0.0, float(options.rdap_failure_ttl_hours)) / 24.0
     for dest in analysis.destinations.values():
         cached = cache.get("rdap", dest.ip, 30, options.refresh)
         # Different providers may report different owners, so only reuse an
@@ -499,6 +527,13 @@ def enrich_rdap(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
         if cached and (cached.get("source") or _rdap_source(DEFAULT_RDAP_URL)) == source:
             dest.rdap = {k: v for k, v in cached.items() if not k.startswith("_")}
             stats["cached"] += 1
+            continue
+        # Like geolocation, remember recent failures briefly so every run
+        # does not retry an endpoint that just failed.
+        failure = (cache.get("rdap_failed", dest.ip, failure_ttl_days, options.refresh)
+                   if failure_ttl_days else None)
+        if failure and failure.get("source") == source:
+            stats["failed_cached"] += 1
         else:
             todo.append(dest.ip)
     if options.offline or not options.rdap or not todo:
@@ -520,8 +555,11 @@ def enrich_rdap(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
                 data = {"_error": str(exc)}
             if data.get("_error"):
                 stats["failed"] += 1
+                cache.set("rdap_failed", ip, {"error": str(data["_error"])[:300],
+                                              "source": source})
                 continue
             cache.set("rdap", ip, data)
+            cache.discard("rdap_failed", ip)
             if ip in analysis.destinations:
                 analysis.destinations[ip].rdap = data
             stats["looked_up"] += 1
@@ -613,15 +651,29 @@ def _cache_vt_result(cache: EnrichmentCache, section: str, key: str,
     if not data.get("_error"):
         cache.set(section, key, {k: v for k, v in data.items() if not k.startswith("_")})
     elif data.get("_status") == 404:
-        # Cache "no record" for a day so repeated runs stay cheap, but do not
-        # pretend the target is clean.
+        # Cache "no record" (with the normal VT TTL) so repeated runs stay
+        # cheap, but do not pretend the target is clean.
         cache.set(section, key, {"not_found": True})
 
 
-def enrich_vt(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
-    cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
+def _vt_quota_exhausted(result: Dict[str, Any]) -> bool:
+    """True when a 429 means the daily/monthly quota, not the per-minute limit."""
+    return "QuotaExceeded" in str(result.get("_body") or "")
+
+
+def _vt_retry_wait(result: Dict[str, Any]) -> float:
+    try:
+        return max(5.0, min(120.0, float(result.get("_retry_after") or "60")))
+    except ValueError:
+        return 60.0
+
+
+def enrich_vt(analysis: Analysis, options: EnrichOptions,
+              cache: Optional[EnrichmentCache] = None) -> Dict[str, Any]:
+    cache = _cache_for(options, cache)
     stats = {"available": bool(options.vt_key), "queried": 0, "cached": 0,
-             "failed": 0, "disabled": False, "domains_queried": 0}
+             "failed": 0, "disabled": False, "quota_exhausted": False,
+             "domains_queried": 0}
     if not options.vt_key or not options.vt:
         for dest in analysis.destinations.values():
             cached = cache.get("vt", dest.ip, 0)
@@ -643,6 +695,7 @@ def enrich_vt(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
 
     limiter = RateLimiter(options.vt_delay)
     disabled = False
+    disabled_reason = "disabled"
     consecutive_network_errors = 0
     todo = []
     for dest in analysis.destinations.values():
@@ -662,10 +715,21 @@ def enrich_vt(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
         )
     for index, ip in enumerate(todo, 1):
         if disabled:
-            analysis.destinations[ip].vt = {"error": "disabled"}
+            analysis.destinations[ip].vt = {"error": disabled_reason}
             continue
-        limiter.wait()
-        result = vt_lookup(ip, options.vt_key)
+        # A 429 is retried once for the same IP after the requested pause; a
+        # second 429 (or an explicit quota error) means the quota is gone.
+        result: Dict[str, Any] = {}
+        for attempt in range(2):
+            limiter.wait()
+            result = vt_lookup(ip, options.vt_key)
+            if result.get("_status") != 429 or attempt or _vt_quota_exhausted(result):
+                break
+            wait = _vt_retry_wait(result)
+            options.logger.warn(
+                f"VirusTotal rate limit reached; sleeping {wait:.0f}s before retrying {ip} ...")
+            time.sleep(wait)
+            limiter.last = time.time()
         error = result.get("_error", "")
         if error:
             if result.get("_status") in (401, 403):
@@ -677,14 +741,25 @@ def enrich_vt(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
                 analysis.destinations[ip].vt = {"error": "auth"}
                 continue
             if result.get("_status") == 429:
-                retry_after = result.get("_retry_after") or "60"
-                try:
-                    wait = max(5.0, min(120.0, float(retry_after)))
-                except ValueError:
-                    wait = 60.0
-                options.logger.warn(f"VirusTotal rate limit reached; sleeping {wait:.0f}s ...")
-                time.sleep(wait)
-                limiter.last = time.time()
+                remaining = total - index + 1
+                reason = ("quota exhausted" if _vt_quota_exhausted(result)
+                          else "still rate limited after a retry")
+                options.logger.warn(
+                    f"VirusTotal {reason}; skipping the remaining {remaining} IP(s).")
+                analysis.warnings.append(
+                    f"VirusTotal {reason}: {remaining} destination(s) were not checked."
+                )
+                disabled = True
+                disabled_reason = "quota"
+                stats["disabled"] = True
+                stats["quota_exhausted"] = True
+                analysis.destinations[ip].vt = {"error": "quota"}
+                continue
+            if result.get("_status") == 404:
+                # "No record" is an answer, not a connectivity problem.
+                consecutive_network_errors = 0
+                analysis.destinations[ip].vt = {"not_found": True}
+                _cache_vt_result(cache, "vt", ip, result, options.vt_ttl_days, options)
                 continue
             consecutive_network_errors += 1
             stats["failed"] += 1
@@ -793,38 +868,48 @@ def apply_tor_exits(analysis: Analysis, exits: Set[str]) -> int:
 # --------------------------------------------------------------------------
 
 def enrich(analysis: Analysis, options: EnrichOptions) -> Dict[str, Any]:
-    """Run all configured enrichment steps and attach results to the analysis."""
+    """Run all configured enrichment steps and attach results to the analysis.
+
+    One cache object is shared by every step and saved once at the end, so
+    steps do not reload/rewrite the file repeatedly.  Ctrl-C stops the
+    enrichment early but keeps what was collected (and saves the cache), so
+    the report can still be written with partial data.
+    """
     started = time.time()
-    options.logger.info(
-        "Enrichment: "
-        + ", ".join(filter(None, [
-            "geo" if options.geo and not options.offline else "",
-            "rDNS" if options.rdns and not options.offline else "",
-            "RDAP" if options.rdap and not options.offline else "",
-            "VT" if options.vt_key and options.vt else "",
-            "Tor exits" if options.tor_exits and not options.offline else "",
-        ])) or "disabled"
-    )
+    enabled = ", ".join(filter(None, [
+        "geo" if options.geo and not options.offline else "",
+        "rDNS" if options.rdns and not options.offline else "",
+        "RDAP" if options.rdap and not options.offline else "",
+        "VT" if options.vt_key and options.vt and not options.offline else "",
+        "Tor exits" if options.tor_exits and not options.offline else "",
+    ]))
+    options.logger.info("Enrichment: " + (enabled or "disabled (cache only)"))
     stats: Dict[str, Any] = {"offline": options.offline}
-    stats["geo"] = enrich_geo(analysis, options)
-    stats["rdns"] = enrich_rdns(analysis, options)
-    if options.rdap:
-        stats["rdap"] = enrich_rdap(analysis, options)
-    if options.tor_exits:
-        cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
-        exits = fetch_tor_exits(cache, options)
-        stats["tor_exits"] = {"listed": len(exits),
-                              "matched": apply_tor_exits(analysis, exits)}
-        cache.save()
-    if options.vt:
-        stats["vt"] = enrich_vt(analysis, options)
-    else:
-        # Still expose cached VT data without making requests.
-        cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
-        for dest in analysis.destinations.values():
-            cached = cache.get("vt", dest.ip, 0)
-            if cached:
-                dest.vt = {k: v for k, v in cached.items() if not k.startswith("_")}
+    cache = EnrichmentCache(options.cache_path, options.logger, options.cache_enabled)
+    try:
+        stats["geo"] = enrich_geo(analysis, options, cache)
+        stats["rdns"] = enrich_rdns(analysis, options, cache)
+        if options.rdap:
+            stats["rdap"] = enrich_rdap(analysis, options, cache)
+        if options.tor_exits:
+            exits = fetch_tor_exits(cache, options)
+            stats["tor_exits"] = {"listed": len(exits),
+                                  "matched": apply_tor_exits(analysis, exits)}
+        if options.vt:
+            stats["vt"] = enrich_vt(analysis, options, cache)
+        else:
+            # Still expose cached VT data without making requests.
+            for dest in analysis.destinations.values():
+                cached = cache.get("vt", dest.ip, 0)
+                if cached:
+                    dest.vt = {k: v for k, v in cached.items() if not k.startswith("_")}
+    except KeyboardInterrupt:
+        stats["interrupted"] = True
+        options.logger.warn("Enrichment interrupted; writing the report with partial data.")
+        analysis.warnings.append(
+            "Enrichment was interrupted (Ctrl-C); some destinations were not enriched."
+        )
+    finally:
         cache.save()
     stats["elapsed_seconds"] = round(time.time() - started, 2)
     analysis.enrichment = stats
